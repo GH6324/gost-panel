@@ -11,4 +11,7 @@ app.use(createPinia())
 app.use(router)
 app.use(naive)
 
-app.mount('#app')
+// 确保路由准备好后再挂载
+router.isReady().then(() => {
+  app.mount('#app')
+})

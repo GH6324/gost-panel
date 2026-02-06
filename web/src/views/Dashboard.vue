@@ -188,6 +188,8 @@ let chart: echarts.ECharts | null = null
 let nodePieChart: echarts.ECharts | null = null
 let clientPieChart: echarts.ECharts | null = null
 let ws: WebSocket | null = null
+let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null
+let resizeHandler: (() => void) | null = null
 
 const intervalOptions = [
   { label: '5s', value: 5000 },
@@ -296,11 +298,12 @@ const initChart = () => {
   updateChart()
 
   // 监听窗口大小变化
-  window.addEventListener('resize', () => {
+  resizeHandler = () => {
     chart?.resize()
     nodePieChart?.resize()
     clientPieChart?.resize()
-  })
+  }
+  window.addEventListener('resize', resizeHandler)
 }
 
 const initPieCharts = () => {
@@ -583,17 +586,28 @@ const handleNotificationToggle = async (value: boolean) => {
 }
 
 // WebSocket connection
+let isUnmounted = false
+
 const connectWebSocket = () => {
+  if (isUnmounted) return
+
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   const wsUrl = `${protocol}//${window.location.host}/ws`
 
-  ws = new WebSocket(wsUrl)
+  try {
+    ws = new WebSocket(wsUrl)
+  } catch {
+    return
+  }
 
   ws.onopen = () => {
-    wsConnected.value = true
+    if (!isUnmounted) {
+      wsConnected.value = true
+    }
   }
 
   ws.onmessage = (event) => {
+    if (isUnmounted) return
     try {
       const msg = JSON.parse(event.data)
       handleWSMessage(msg)
@@ -603,8 +617,13 @@ const connectWebSocket = () => {
   }
 
   ws.onclose = () => {
+    if (isUnmounted) return
     wsConnected.value = false
-    setTimeout(connectWebSocket, 5000)
+    // 清除之前的重连定时器
+    if (wsReconnectTimer) {
+      clearTimeout(wsReconnectTimer)
+    }
+    wsReconnectTimer = setTimeout(connectWebSocket, 5000)
   }
 
   ws.onerror = () => {
@@ -649,11 +668,13 @@ const handleWSMessage = (msg: { type: string; data: any }) => {
   }
 }
 
-onMounted(async () => {
-  await loadAll()
-  await nextTick()
-  initChart()
-  initPieCharts()
+onMounted(() => {
+  // 不使用 await，让加载异步进行，不阻塞 UI
+  loadAll()
+  nextTick(() => {
+    initChart()
+    initPieCharts()
+  })
   startAutoRefresh()
   connectWebSocket()
 
@@ -665,7 +686,21 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  isUnmounted = true
   stopAutoRefresh()
+
+  // 清除 resize 监听器
+  if (resizeHandler) {
+    window.removeEventListener('resize', resizeHandler)
+    resizeHandler = null
+  }
+
+  // 清除 WebSocket 重连定时器
+  if (wsReconnectTimer) {
+    clearTimeout(wsReconnectTimer)
+    wsReconnectTimer = null
+  }
+
   if (chart) {
     chart.dispose()
     chart = null
