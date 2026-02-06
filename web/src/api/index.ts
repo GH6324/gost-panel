@@ -24,6 +24,8 @@ import type {
   TunnelUpdateRequest,
   TagCreateRequest,
   TagUpdateRequest,
+  PlanCreateRequest,
+  PlanUpdateRequest,
   PaginationParams,
   ProfileUpdateRequest,
 } from '../types'
@@ -113,6 +115,7 @@ export const changePassword = (oldPassword: string, newPassword: string) =>
   api.post('/change-password', { old_password: oldPassword, new_password: newPassword })
 export const verifyUserEmail = (id: number) => api.post(`/users/${id}/verify-email`)
 export const resendVerification = (id: number) => api.post(`/users/${id}/resend-verification`)
+export const resetUserQuota = (id: number) => api.post(`/users/${id}/reset-quota`)
 
 // 个人账户设置
 export const getProfile = () => api.get('/profile')
@@ -261,5 +264,17 @@ export const getNodeTags = (nodeId: number) => api.get(`/nodes/${nodeId}/tags`)
 export const addNodeTag = (nodeId: number, tagId: number) => api.post(`/nodes/${nodeId}/tags`, { tag_id: tagId })
 export const setNodeTags = (nodeId: number, tagIds: number[]) => api.put(`/nodes/${nodeId}/tags`, { tag_ids: tagIds })
 export const removeNodeTag = (nodeId: number, tagId: number) => api.delete(`/nodes/${nodeId}/tags/${tagId}`)
+
+// 套餐管理
+export const getPlans = () => api.get('/plans')
+export const getPlan = (id: number) => api.get(`/plans/${id}`)
+export const createPlan = (data: PlanCreateRequest) => api.post('/plans', data)
+export const updatePlan = (id: number, data: PlanUpdateRequest) => api.put(`/plans/${id}`, data)
+export const deletePlan = (id: number) => api.delete(`/plans/${id}`)
+
+// 用户套餐操作
+export const assignUserPlan = (userId: number, planId: number) => api.post(`/users/${userId}/assign-plan`, { plan_id: planId })
+export const removeUserPlan = (userId: number) => api.post(`/users/${userId}/remove-plan`)
+export const renewUserPlan = (userId: number, days: number) => api.post(`/users/${userId}/renew-plan`, { days })
 
 export default api

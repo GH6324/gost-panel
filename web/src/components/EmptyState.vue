@@ -30,10 +30,11 @@ import {
   GitNetworkOutline,
   LinkOutline,
   SearchOutline,
+  CardOutline,
 } from '@vicons/ionicons5'
 
 const props = withDefaults(defineProps<{
-  type?: 'nodes' | 'clients' | 'users' | 'notify' | 'forwards' | 'groups' | 'tunnels' | 'search' | 'default'
+  type?: 'nodes' | 'clients' | 'users' | 'notify' | 'forwards' | 'groups' | 'tunnels' | 'search' | 'plans' | 'default'
   title?: string
   description?: string
   actionText?: string
@@ -53,6 +54,7 @@ const iconMap: Record<string, any> = {
   groups: GitNetworkOutline,
   tunnels: LinkOutline,
   search: SearchOutline,
+  plans: CardOutline,
   default: SearchOutline,
 }
 
@@ -65,6 +67,7 @@ const titleMap: Record<string, string> = {
   groups: '暂无负载均衡组',
   tunnels: '暂无隧道',
   search: '未找到匹配结果',
+  plans: '暂无套餐',
   default: '暂无数据',
 }
 
@@ -77,6 +80,7 @@ const descMap: Record<string, string> = {
   groups: '创建节点组实现负载均衡',
   tunnels: '创建隧道连接入口和出口节点',
   search: '尝试修改搜索关键词',
+  plans: '创建套餐来管理用户权限',
   default: '',
 }
 

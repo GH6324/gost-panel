@@ -280,6 +280,17 @@ func (s *Server) setupRoutes() {
 			// 管理员用户操作
 			auth.POST("/users/:id/verify-email", s.adminVerifyUserEmail)
 			auth.POST("/users/:id/resend-verification", s.resendVerificationEmail)
+			auth.POST("/users/:id/reset-quota", s.resetUserQuota)
+			auth.POST("/users/:id/assign-plan", s.assignUserPlan)
+			auth.POST("/users/:id/remove-plan", s.removeUserPlan)
+			auth.POST("/users/:id/renew-plan", s.renewUserPlan)
+
+			// 套餐管理
+			auth.GET("/plans", s.listPlans)
+			auth.GET("/plans/:id", s.getPlan)
+			auth.POST("/plans", s.createPlan)
+			auth.PUT("/plans/:id", s.updatePlan)
+			auth.DELETE("/plans/:id", s.deletePlan)
 		}
 	}
 
@@ -636,6 +647,23 @@ func (s *Server) resendVerificationEmail(c *gin.Context) {
 	if user != nil {
 		user.VerificationToken = token
 		go s.sendVerificationEmail(user)
+	}
+
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// 重置用户配额
+func (s *Server) resetUserQuota(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err := s.svc.ResetUserQuota(uint(id)); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"success": true})

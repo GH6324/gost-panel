@@ -243,8 +243,36 @@ type User struct {
 	ResetTokenExpiry  *time.Time `json:"-"`                                   // 重置令牌过期时间
 	LastLoginAt       *time.Time `json:"last_login_at,omitempty"`             // 上次登录时间
 	LastLoginIP       string     `gorm:"size:50" json:"last_login_ip,omitempty"` // 上次登录 IP
+	// 用户套餐
+	PlanID         *uint      `gorm:"index" json:"plan_id,omitempty"`        // 当前套餐ID
+	Plan           *Plan      `gorm:"foreignKey:PlanID" json:"plan,omitempty"`
+	PlanStartAt    *time.Time `json:"plan_start_at,omitempty"`               // 套餐开始时间
+	PlanExpireAt   *time.Time `json:"plan_expire_at,omitempty"`              // 套餐到期时间
+	PlanTrafficUsed int64     `gorm:"default:0" json:"plan_traffic_used"`    // 套餐周期内已用流量
+	// 用户流量配额 (聚合用户拥有的所有资源流量，可被套餐覆盖)
+	TrafficQuota   int64     `gorm:"default:0" json:"traffic_quota"`       // 流量配额 (bytes), 0=无限制
+	QuotaUsed      int64     `gorm:"default:0" json:"quota_used"`          // 本周期已用流量
+	QuotaResetDay  int       `gorm:"default:1" json:"quota_reset_day"`     // 每月重置日 (1-28)
+	QuotaResetAt   time.Time `json:"quota_reset_at"`                       // 上次重置时间
+	QuotaExceeded  bool      `gorm:"default:false" json:"quota_exceeded"`  // 是否超限
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+// Plan 套餐
+type Plan struct {
+	ID            uint      `gorm:"primaryKey" json:"id"`
+	Name          string    `gorm:"size:100;not null" json:"name"`           // 套餐名称
+	Description   string    `gorm:"size:255" json:"description"`             // 套餐描述
+	TrafficQuota  int64     `gorm:"default:0" json:"traffic_quota"`          // 流量配额 (bytes), 0=无限制
+	SpeedLimit    int64     `gorm:"default:0" json:"speed_limit"`            // 速度限制 (bytes/s), 0=不限速
+	Duration      int       `gorm:"default:30" json:"duration"`              // 有效期 (天), 0=永久
+	MaxNodes      int       `gorm:"default:0" json:"max_nodes"`              // 最大节点数, 0=无限制
+	MaxClients    int       `gorm:"default:0" json:"max_clients"`            // 最大客户端数, 0=无限制
+	Enabled       bool      `gorm:"default:true" json:"enabled"`             // 是否启用
+	SortOrder     int       `gorm:"default:0" json:"sort_order"`             // 排序顺序
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // TrafficHistory 流量历史记录
@@ -359,7 +387,7 @@ func InitDB(dbPath string) (*gorm.DB, error) {
 	}
 
 	// 自动迁移
-	if err := db.AutoMigrate(&Node{}, &Client{}, &Service{}, &User{}, &TrafficHistory{}, &NotifyChannel{}, &AlertRule{}, &AlertLog{}, &PortForward{}, &NodeGroup{}, &NodeGroupMember{}, &DNSConfig{}, &OperationLog{}, &ProxyChain{}, &ProxyChainHop{}, &Tunnel{}, &SiteConfig{}, &Tag{}, &NodeTag{}); err != nil {
+	if err := db.AutoMigrate(&Node{}, &Client{}, &Service{}, &User{}, &Plan{}, &TrafficHistory{}, &NotifyChannel{}, &AlertRule{}, &AlertLog{}, &PortForward{}, &NodeGroup{}, &NodeGroupMember{}, &DNSConfig{}, &OperationLog{}, &ProxyChain{}, &ProxyChainHop{}, &Tunnel{}, &SiteConfig{}, &Tag{}, &NodeTag{}); err != nil {
 		return nil, err
 	}
 

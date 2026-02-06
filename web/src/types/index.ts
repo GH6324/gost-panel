@@ -225,3 +225,20 @@ export interface SiteConfig {
   registration_enabled?: string
   email_verification_enabled?: string
 }
+
+// 套餐相关
+export interface Plan extends BaseEntity {
+  name: string
+  description?: string
+  traffic_quota: number
+  speed_limit: number
+  duration: number
+  max_nodes: number
+  max_clients: number
+  enabled: boolean
+  sort_order: number
+  user_count?: number
+}
+
+export type PlanCreateRequest = Record<string, unknown>
+export type PlanUpdateRequest = Record<string, unknown>

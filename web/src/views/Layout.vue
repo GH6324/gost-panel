@@ -127,6 +127,7 @@ import {
   SettingsOutline,
   ListOutline,
   MenuOutline,
+  CardOutline,
 } from '@vicons/ionicons5'
 import { useUserStore } from '../stores/user'
 import { useThemeStore } from '../stores/theme'
@@ -219,6 +220,11 @@ const menuOptions = [
     label: '操作日志',
     key: 'operation-logs',
     icon: renderIcon(ListOutline),
+  },
+  {
+    label: '套餐管理',
+    key: 'plans',
+    icon: renderIcon(CardOutline),
   },
   {
     label: '网站设置',

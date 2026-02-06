@@ -108,6 +108,7 @@ var allowedSortFields = map[string]map[string]bool{
 	"users": {
 		"id": true, "username": true, "email": true, "role": true,
 		"enabled": true, "created_at": true, "last_login_at": true,
+		"traffic_quota": true, "quota_used": true, "quota_exceeded": true,
 	},
 	"port_forwards": {
 		"id": true, "name": true, "type": true, "enabled": true,
@@ -543,7 +544,7 @@ func (s *Service) ValidateUser(username, password string) (*model.User, error) {
 // ListUsers 获取用户列表
 func (s *Service) ListUsers() ([]model.User, error) {
 	var users []model.User
-	err := s.db.Order("id asc").Find(&users).Error
+	err := s.db.Preload("Plan").Order("id asc").Find(&users).Error
 	return users, err
 }
 
@@ -875,6 +876,181 @@ func (s *Service) ResendVerificationEmail(userID uint) (string, error) {
 	}
 
 	return token, nil
+}
+
+// ==================== 用户流量配额 ====================
+
+// UserTrafficSummary 用户流量汇总
+type UserTrafficSummary struct {
+	TotalTrafficIn  int64 `json:"total_traffic_in"`
+	TotalTrafficOut int64 `json:"total_traffic_out"`
+	TotalQuotaUsed  int64 `json:"total_quota_used"`
+	NodesCount      int   `json:"nodes_count"`
+	ClientsCount    int   `json:"clients_count"`
+	TunnelsCount    int   `json:"tunnels_count"`
+}
+
+// GetUserTrafficSummary 获取用户流量汇总 (聚合所有拥有的资源)
+func (s *Service) GetUserTrafficSummary(userID uint) (*UserTrafficSummary, error) {
+	summary := &UserTrafficSummary{}
+
+	// 统计用户拥有的节点流量
+	var nodeResult struct {
+		TrafficIn  int64
+		TrafficOut int64
+		QuotaUsed  int64
+		Count      int
+	}
+	s.db.Model(&model.Node{}).
+		Where("owner_id = ?", userID).
+		Select("COALESCE(SUM(traffic_in), 0) as traffic_in, COALESCE(SUM(traffic_out), 0) as traffic_out, COALESCE(SUM(quota_used), 0) as quota_used, COUNT(*) as count").
+		Scan(&nodeResult)
+
+	// 统计用户拥有的客户端流量
+	var clientResult struct {
+		TrafficIn  int64
+		TrafficOut int64
+		QuotaUsed  int64
+		Count      int
+	}
+	s.db.Model(&model.Client{}).
+		Where("owner_id = ?", userID).
+		Select("COALESCE(SUM(traffic_in), 0) as traffic_in, COALESCE(SUM(traffic_out), 0) as traffic_out, COALESCE(SUM(quota_used), 0) as quota_used, COUNT(*) as count").
+		Scan(&clientResult)
+
+	// 统计用户拥有的隧道流量
+	var tunnelResult struct {
+		TrafficIn  int64
+		TrafficOut int64
+		Count      int
+	}
+	s.db.Model(&model.Tunnel{}).
+		Where("owner_id = ?", userID).
+		Select("COALESCE(SUM(traffic_in), 0) as traffic_in, COALESCE(SUM(traffic_out), 0) as traffic_out, COUNT(*) as count").
+		Scan(&tunnelResult)
+
+	summary.TotalTrafficIn = nodeResult.TrafficIn + clientResult.TrafficIn + tunnelResult.TrafficIn
+	summary.TotalTrafficOut = nodeResult.TrafficOut + clientResult.TrafficOut + tunnelResult.TrafficOut
+	summary.TotalQuotaUsed = nodeResult.QuotaUsed + clientResult.QuotaUsed
+	summary.NodesCount = nodeResult.Count
+	summary.ClientsCount = clientResult.Count
+	summary.TunnelsCount = tunnelResult.Count
+
+	return summary, nil
+}
+
+// UpdateUserQuotaUsed 更新用户配额使用量 (从拥有的资源聚合)
+func (s *Service) UpdateUserQuotaUsed(userID uint) error {
+	summary, err := s.GetUserTrafficSummary(userID)
+	if err != nil {
+		return err
+	}
+
+	// 更新用户的 quota_used
+	totalUsed := summary.TotalTrafficIn + summary.TotalTrafficOut
+
+	return s.db.Model(&model.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		"quota_used": totalUsed,
+	}).Error
+}
+
+// CheckUserQuota 检查用户配额是否超限
+func (s *Service) CheckUserQuota(userID uint) (bool, error) {
+	var user model.User
+	if err := s.db.First(&user, userID).Error; err != nil {
+		return false, err
+	}
+
+	// 如果没有设置配额，则不限制
+	if user.TrafficQuota <= 0 {
+		return false, nil
+	}
+
+	// 获取用户流量汇总
+	summary, err := s.GetUserTrafficSummary(userID)
+	if err != nil {
+		return false, err
+	}
+
+	totalUsed := summary.TotalTrafficIn + summary.TotalTrafficOut
+	exceeded := totalUsed >= user.TrafficQuota
+
+	// 更新用户的 quota_used 和 quota_exceeded
+	s.db.Model(&model.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		"quota_used":     totalUsed,
+		"quota_exceeded": exceeded,
+	})
+
+	return exceeded, nil
+}
+
+// ResetUserQuota 重置用户配额
+func (s *Service) ResetUserQuota(userID uint) error {
+	return s.db.Model(&model.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		"quota_used":      0,
+		"quota_exceeded":  false,
+		"quota_reset_at":  time.Now(),
+	}).Error
+}
+
+// CheckAndResetUserQuotas 检查并重置所有用户的配额 (按月重置日)
+func (s *Service) CheckAndResetUserQuotas() error {
+	now := time.Now()
+	day := now.Day()
+
+	// 获取需要重置的用户
+	var users []model.User
+	s.db.Where("quota_reset_day = ? AND (quota_reset_at < ? OR quota_reset_at IS NULL)",
+		day, now.AddDate(0, 0, -1)).Find(&users)
+
+	for _, user := range users {
+		s.ResetUserQuota(user.ID)
+	}
+
+	return nil
+}
+
+// GetUsersWithTrafficSummary 获取用户列表并附带流量汇总
+func (s *Service) GetUsersWithTrafficSummary() ([]map[string]interface{}, error) {
+	users, err := s.ListUsers()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]map[string]interface{}, len(users))
+	for i, user := range users {
+		summary, _ := s.GetUserTrafficSummary(user.ID)
+
+		result[i] = map[string]interface{}{
+			"id":               user.ID,
+			"username":         user.Username,
+			"email":            user.Email,
+			"role":             user.Role,
+			"enabled":          user.Enabled,
+			"password_changed": user.PasswordChanged,
+			"email_verified":   user.EmailVerified,
+			"last_login_at":    user.LastLoginAt,
+			"last_login_ip":    user.LastLoginIP,
+			"created_at":       user.CreatedAt,
+			"updated_at":       user.UpdatedAt,
+			// 流量配额相关
+			"traffic_quota":    user.TrafficQuota,
+			"quota_used":       user.QuotaUsed,
+			"quota_reset_day":  user.QuotaResetDay,
+			"quota_reset_at":   user.QuotaResetAt,
+			"quota_exceeded":   user.QuotaExceeded,
+			// 流量汇总
+			"traffic_summary":  summary,
+			// 套餐相关
+			"plan_id":           user.PlanID,
+			"plan":              user.Plan,
+			"plan_start_at":     user.PlanStartAt,
+			"plan_expire_at":    user.PlanExpireAt,
+			"plan_traffic_used": user.PlanTrafficUsed,
+		}
+	}
+
+	return result, nil
 }
 
 // ==================== Stats ====================
@@ -1540,4 +1716,163 @@ func (s *Service) SetNodeTags(nodeID uint, tagIDs []uint) error {
 		}
 		return nil
 	})
+}
+
+// ==================== 套餐管理 ====================
+
+// ListPlans 获取所有套餐
+func (s *Service) ListPlans() ([]model.Plan, error) {
+	var plans []model.Plan
+	err := s.db.Order("sort_order asc, id asc").Find(&plans).Error
+	return plans, err
+}
+
+// GetPlan 获取单个套餐
+func (s *Service) GetPlan(id uint) (*model.Plan, error) {
+	var plan model.Plan
+	err := s.db.First(&plan, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &plan, nil
+}
+
+// CreatePlan 创建套餐
+func (s *Service) CreatePlan(plan *model.Plan) error {
+	plan.CreatedAt = time.Now()
+	plan.UpdatedAt = time.Now()
+	return s.db.Create(plan).Error
+}
+
+// UpdatePlan 更新套餐
+func (s *Service) UpdatePlan(id uint, updates map[string]interface{}) error {
+	updates["updated_at"] = time.Now()
+	delete(updates, "id")
+	delete(updates, "created_at")
+	return s.db.Model(&model.Plan{}).Where("id = ?", id).Updates(updates).Error
+}
+
+// DeletePlan 删除套餐
+func (s *Service) DeletePlan(id uint) error {
+	// 检查是否有用户正在使用此套餐
+	var count int64
+	s.db.Model(&model.User{}).Where("plan_id = ?", id).Count(&count)
+	if count > 0 {
+		return errors.New("该套餐正在被使用，无法删除")
+	}
+	return s.db.Delete(&model.Plan{}, id).Error
+}
+
+// AssignUserPlan 为用户分配套餐
+func (s *Service) AssignUserPlan(userID, planID uint) error {
+	plan, err := s.GetPlan(planID)
+	if err != nil {
+		return errors.New("套餐不存在")
+	}
+
+	if !plan.Enabled {
+		return errors.New("套餐已禁用")
+	}
+
+	now := time.Now()
+	var expireAt *time.Time
+	if plan.Duration > 0 {
+		expire := now.AddDate(0, 0, plan.Duration)
+		expireAt = &expire
+	}
+
+	return s.db.Model(&model.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		"plan_id":           planID,
+		"plan_start_at":     now,
+		"plan_expire_at":    expireAt,
+		"plan_traffic_used": 0,
+		// 套餐配额覆盖用户配额
+		"traffic_quota":     plan.TrafficQuota,
+		"quota_used":        0,
+		"quota_exceeded":    false,
+	}).Error
+}
+
+// RemoveUserPlan 移除用户套餐
+func (s *Service) RemoveUserPlan(userID uint) error {
+	return s.db.Model(&model.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		"plan_id":           nil,
+		"plan_start_at":     nil,
+		"plan_expire_at":    nil,
+		"plan_traffic_used": 0,
+	}).Error
+}
+
+// RenewUserPlan 续期用户套餐
+func (s *Service) RenewUserPlan(userID uint, days int) error {
+	var user model.User
+	if err := s.db.Preload("Plan").First(&user, userID).Error; err != nil {
+		return errors.New("用户不存在")
+	}
+
+	if user.PlanID == nil {
+		return errors.New("用户没有套餐")
+	}
+
+	now := time.Now()
+	var baseTime time.Time
+	if user.PlanExpireAt != nil && user.PlanExpireAt.After(now) {
+		baseTime = *user.PlanExpireAt
+	} else {
+		baseTime = now
+	}
+
+	newExpireAt := baseTime.AddDate(0, 0, days)
+
+	return s.db.Model(&model.User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		"plan_expire_at":    newExpireAt,
+		"plan_traffic_used": 0,
+		"quota_used":        0,
+		"quota_exceeded":    false,
+	}).Error
+}
+
+// CheckUserPlanStatus 检查用户套餐状态 (是否过期或超限)
+func (s *Service) CheckUserPlanStatus(userID uint) (expired bool, exceeded bool, err error) {
+	var user model.User
+	if err = s.db.Preload("Plan").First(&user, userID).Error; err != nil {
+		return false, false, err
+	}
+
+	if user.PlanID == nil {
+		return false, false, nil
+	}
+
+	now := time.Now()
+
+	// 检查是否过期
+	if user.PlanExpireAt != nil && user.PlanExpireAt.Before(now) {
+		expired = true
+	}
+
+	// 检查是否超限
+	if user.Plan != nil && user.Plan.TrafficQuota > 0 {
+		if user.PlanTrafficUsed >= user.Plan.TrafficQuota {
+			exceeded = true
+		}
+	}
+
+	return expired, exceeded, nil
+}
+
+// GetUsersWithExpiredPlans 获取套餐已过期的用户
+func (s *Service) GetUsersWithExpiredPlans() ([]model.User, error) {
+	var users []model.User
+	now := time.Now()
+	err := s.db.Preload("Plan").
+		Where("plan_id IS NOT NULL AND plan_expire_at IS NOT NULL AND plan_expire_at < ?", now).
+		Find(&users).Error
+	return users, err
+}
+
+// GetPlanUserCount 获取套餐的用户数量
+func (s *Service) GetPlanUserCount(planID uint) (int64, error) {
+	var count int64
+	err := s.db.Model(&model.User{}).Where("plan_id = ?", planID).Count(&count).Error
+	return count, err
 }
