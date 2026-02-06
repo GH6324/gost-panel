@@ -442,7 +442,11 @@ const loadRules = async () => {
   rulesLoading.value = true
   try {
     const data: any = await getAlertRules()
-    rules.value = data || []
+    // 确保 channel_ids 始终是数组
+    rules.value = (data || []).map((rule: any) => ({
+      ...rule,
+      channel_ids: Array.isArray(rule.channel_ids) ? rule.channel_ids : []
+    }))
   } catch (e) {
     message.error('加载告警规则失败')
   } finally {
@@ -562,7 +566,9 @@ const openCreateRuleModal = () => {
 
 const handleEditRule = (row: any) => {
   editingRule.value = row
-  ruleForm.value = { ...defaultRuleForm(), ...row }
+  // 确保 channel_ids 是数组
+  const channelIds = Array.isArray(row.channel_ids) ? row.channel_ids : []
+  ruleForm.value = { ...defaultRuleForm(), ...row, channel_ids: channelIds }
   ruleCondition.value = { ...row.condition }
   showRuleModal.value = true
 }

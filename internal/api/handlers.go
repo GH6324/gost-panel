@@ -1377,8 +1377,8 @@ func (s *Server) formatAlertRules(rules []model.AlertRule) []gin.H {
 
 // formatAlertRule 转换单个告警规则为前端格式
 func (s *Server) formatAlertRule(rule *model.AlertRule) gin.H {
-	// 解析 channel_ids 字符串为数组
-	var channelIDs []int
+	// 解析 channel_ids 字符串为数组 - 始终返回数组，即使为空
+	channelIDs := make([]int, 0)
 	if rule.ChannelIDs != "" {
 		for _, idStr := range strings.Split(rule.ChannelIDs, ",") {
 			idStr = strings.TrimSpace(idStr)
