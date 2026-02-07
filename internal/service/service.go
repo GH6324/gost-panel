@@ -1876,3 +1876,132 @@ func (s *Service) GetPlanUserCount(planID uint) (int64, error) {
 	err := s.db.Model(&model.User{}).Where("plan_id = ?", planID).Count(&count).Error
 	return count, err
 }
+
+// ==================== Bypass 分流规则 ====================
+
+func (s *Service) ListBypasses(userID uint, isAdmin bool) ([]model.Bypass, error) {
+	var bypasses []model.Bypass
+	query := s.db.Order("id desc")
+	if !isAdmin {
+		query = query.Where("owner_id = ? OR owner_id IS NULL", userID)
+	}
+	return bypasses, query.Find(&bypasses).Error
+}
+
+func (s *Service) GetBypass(id uint) (*model.Bypass, error) {
+	var bypass model.Bypass
+	err := s.db.First(&bypass, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &bypass, nil
+}
+
+func (s *Service) CreateBypass(bypass *model.Bypass) error {
+	bypass.CreatedAt = time.Now()
+	bypass.UpdatedAt = time.Now()
+	return s.db.Create(bypass).Error
+}
+
+func (s *Service) UpdateBypass(id uint, updates map[string]interface{}) error {
+	updates["updated_at"] = time.Now()
+	delete(updates, "id")
+	delete(updates, "created_at")
+	return s.db.Model(&model.Bypass{}).Where("id = ?", id).Updates(updates).Error
+}
+
+func (s *Service) DeleteBypass(id uint) error {
+	return s.db.Delete(&model.Bypass{}, id).Error
+}
+
+func (s *Service) GetBypassesByNode(nodeID uint) ([]model.Bypass, error) {
+	var bypasses []model.Bypass
+	err := s.db.Where("node_id = ? OR node_id IS NULL", nodeID).Find(&bypasses).Error
+	return bypasses, err
+}
+
+// ==================== Admission 准入控制 ====================
+
+func (s *Service) ListAdmissions(userID uint, isAdmin bool) ([]model.Admission, error) {
+	var admissions []model.Admission
+	query := s.db.Order("id desc")
+	if !isAdmin {
+		query = query.Where("owner_id = ? OR owner_id IS NULL", userID)
+	}
+	return admissions, query.Find(&admissions).Error
+}
+
+func (s *Service) GetAdmission(id uint) (*model.Admission, error) {
+	var admission model.Admission
+	err := s.db.First(&admission, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &admission, nil
+}
+
+func (s *Service) CreateAdmission(admission *model.Admission) error {
+	admission.CreatedAt = time.Now()
+	admission.UpdatedAt = time.Now()
+	return s.db.Create(admission).Error
+}
+
+func (s *Service) UpdateAdmission(id uint, updates map[string]interface{}) error {
+	updates["updated_at"] = time.Now()
+	delete(updates, "id")
+	delete(updates, "created_at")
+	return s.db.Model(&model.Admission{}).Where("id = ?", id).Updates(updates).Error
+}
+
+func (s *Service) DeleteAdmission(id uint) error {
+	return s.db.Delete(&model.Admission{}, id).Error
+}
+
+func (s *Service) GetAdmissionsByNode(nodeID uint) ([]model.Admission, error) {
+	var admissions []model.Admission
+	err := s.db.Where("node_id = ? OR node_id IS NULL", nodeID).Find(&admissions).Error
+	return admissions, err
+}
+
+// ==================== HostMapping 主机映射 ====================
+
+func (s *Service) ListHostMappings(userID uint, isAdmin bool) ([]model.HostMapping, error) {
+	var mappings []model.HostMapping
+	query := s.db.Order("id desc")
+	if !isAdmin {
+		query = query.Where("owner_id = ? OR owner_id IS NULL", userID)
+	}
+	return mappings, query.Find(&mappings).Error
+}
+
+func (s *Service) GetHostMapping(id uint) (*model.HostMapping, error) {
+	var mapping model.HostMapping
+	err := s.db.First(&mapping, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &mapping, nil
+}
+
+func (s *Service) CreateHostMapping(mapping *model.HostMapping) error {
+	mapping.CreatedAt = time.Now()
+	mapping.UpdatedAt = time.Now()
+	return s.db.Create(mapping).Error
+}
+
+func (s *Service) UpdateHostMapping(id uint, updates map[string]interface{}) error {
+	updates["updated_at"] = time.Now()
+	delete(updates, "id")
+	delete(updates, "created_at")
+	return s.db.Model(&model.HostMapping{}).Where("id = ?", id).Updates(updates).Error
+}
+
+func (s *Service) DeleteHostMapping(id uint) error {
+	return s.db.Delete(&model.HostMapping{}, id).Error
+}
+
+func (s *Service) GetHostMappingsByNode(nodeID uint) ([]model.HostMapping, error) {
+	var mappings []model.HostMapping
+	err := s.db.Where("node_id = ? OR node_id IS NULL", nodeID).Find(&mappings).Error
+	return mappings, err
+}

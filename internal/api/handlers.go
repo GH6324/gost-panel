@@ -394,7 +394,10 @@ func (s *Server) getNodeGostConfig(c *gin.Context) {
 
 	// 使用新的配置生成器
 	generator := gost.NewConfigGenerator()
-	config := generator.GenerateNodeConfig(node)
+	bypasses, _ := s.svc.GetBypassesByNode(node.ID)
+	admissions, _ := s.svc.GetAdmissionsByNode(node.ID)
+	hostMappings, _ := s.svc.GetHostMappingsByNode(node.ID)
+	config := generator.GenerateNodeConfigWithRules(node, bypasses, admissions, hostMappings)
 
 	c.YAML(http.StatusOK, config)
 }
@@ -964,9 +967,12 @@ func (s *Server) agentGetConfig(c *gin.Context) {
 	// 尝试查找节点
 	node, err := s.svc.GetNodeByToken(token)
 	if err == nil {
-		// 使用 ConfigGenerator 生成完整配置（包含 relay 服务）
+		// 使用 ConfigGenerator 生成完整配置（包含规则）
 		generator := gost.NewConfigGenerator()
-		config := generator.GenerateNodeConfig(node)
+		bypasses, _ := s.svc.GetBypassesByNode(node.ID)
+		admissions, _ := s.svc.GetAdmissionsByNode(node.ID)
+		hostMappings, _ := s.svc.GetHostMappingsByNode(node.ID)
+		config := generator.GenerateNodeConfigWithRules(node, bypasses, admissions, hostMappings)
 		c.YAML(http.StatusOK, config)
 		return
 	}
@@ -3266,5 +3272,194 @@ func (s *Server) renewUserPlan(c *gin.Context) {
 		return
 	}
 
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// ==================== Bypass 分流规则 ====================
+
+func (s *Server) listBypasses(c *gin.Context) {
+	userID, isAdmin := getUserInfo(c)
+	bypasses, err := s.svc.ListBypasses(userID, isAdmin)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, bypasses)
+}
+
+func (s *Server) getBypass(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	bypass, err := s.svc.GetBypass(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "bypass not found"})
+		return
+	}
+	c.JSON(http.StatusOK, bypass)
+}
+
+func (s *Server) createBypass(c *gin.Context) {
+	userID, _ := getUserInfo(c)
+	var bypass model.Bypass
+	if err := c.ShouldBindJSON(&bypass); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	bypass.OwnerID = &userID
+	if err := s.svc.CreateBypass(&bypass); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	s.audit.LogSuccess(c, "create", "bypass", bypass.ID, bypass.Name)
+	c.JSON(http.StatusOK, bypass)
+}
+
+func (s *Server) updateBypass(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	var updates map[string]interface{}
+	if err := c.ShouldBindJSON(&updates); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := s.svc.UpdateBypass(uint(id), updates); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	s.audit.LogSuccess(c, "update", "bypass", uint(id), "")
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (s *Server) deleteBypass(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err := s.svc.DeleteBypass(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	s.audit.LogSuccess(c, "delete", "bypass", uint(id), "")
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// ==================== Admission 准入控制 ====================
+
+func (s *Server) listAdmissions(c *gin.Context) {
+	userID, isAdmin := getUserInfo(c)
+	admissions, err := s.svc.ListAdmissions(userID, isAdmin)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, admissions)
+}
+
+func (s *Server) getAdmission(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	admission, err := s.svc.GetAdmission(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "admission not found"})
+		return
+	}
+	c.JSON(http.StatusOK, admission)
+}
+
+func (s *Server) createAdmission(c *gin.Context) {
+	userID, _ := getUserInfo(c)
+	var admission model.Admission
+	if err := c.ShouldBindJSON(&admission); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	admission.OwnerID = &userID
+	if err := s.svc.CreateAdmission(&admission); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	s.audit.LogSuccess(c, "create", "admission", admission.ID, admission.Name)
+	c.JSON(http.StatusOK, admission)
+}
+
+func (s *Server) updateAdmission(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	var updates map[string]interface{}
+	if err := c.ShouldBindJSON(&updates); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := s.svc.UpdateAdmission(uint(id), updates); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	s.audit.LogSuccess(c, "update", "admission", uint(id), "")
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (s *Server) deleteAdmission(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err := s.svc.DeleteAdmission(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	s.audit.LogSuccess(c, "delete", "admission", uint(id), "")
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// ==================== HostMapping 主机映射 ====================
+
+func (s *Server) listHostMappings(c *gin.Context) {
+	userID, isAdmin := getUserInfo(c)
+	mappings, err := s.svc.ListHostMappings(userID, isAdmin)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, mappings)
+}
+
+func (s *Server) getHostMapping(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	mapping, err := s.svc.GetHostMapping(uint(id))
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "host mapping not found"})
+		return
+	}
+	c.JSON(http.StatusOK, mapping)
+}
+
+func (s *Server) createHostMapping(c *gin.Context) {
+	userID, _ := getUserInfo(c)
+	var mapping model.HostMapping
+	if err := c.ShouldBindJSON(&mapping); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	mapping.OwnerID = &userID
+	if err := s.svc.CreateHostMapping(&mapping); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	s.audit.LogSuccess(c, "create", "host_mapping", mapping.ID, mapping.Name)
+	c.JSON(http.StatusOK, mapping)
+}
+
+func (s *Server) updateHostMapping(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	var updates map[string]interface{}
+	if err := c.ShouldBindJSON(&updates); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err := s.svc.UpdateHostMapping(uint(id), updates); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	s.audit.LogSuccess(c, "update", "host_mapping", uint(id), "")
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+func (s *Server) deleteHostMapping(c *gin.Context) {
+	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err := s.svc.DeleteHostMapping(uint(id)); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	s.audit.LogSuccess(c, "delete", "host_mapping", uint(id), "")
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }

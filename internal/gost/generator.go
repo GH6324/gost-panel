@@ -1,6 +1,7 @@
 package gost
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/AliceNetworks/gost-panel/internal/model"
@@ -15,6 +16,11 @@ func NewConfigGenerator() *ConfigGenerator {
 
 // GenerateNodeConfig 生成节点完整配置
 func (g *ConfigGenerator) GenerateNodeConfig(node *model.Node) map[string]interface{} {
+	return g.GenerateNodeConfigWithRules(node, nil, nil, nil)
+}
+
+// GenerateNodeConfigWithRules 生成节点完整配置 (含分流/准入/主机映射规则)
+func (g *ConfigGenerator) GenerateNodeConfigWithRules(node *model.Node, bypasses []model.Bypass, admissions []model.Admission, hostMappings []model.HostMapping) map[string]interface{} {
 	config := map[string]interface{}{}
 
 	// API 配置
@@ -29,9 +35,31 @@ func (g *ConfigGenerator) GenerateNodeConfig(node *model.Node) map[string]interf
 	config["observers"] = g.generateObservers(node)
 
 	// 服务配置 (SOCKS5 代理服务，bind=true 支持反向隧道)
-	services := []map[string]interface{}{
-		g.generateMainService(node),
+	mainService := g.generateMainService(node)
+
+	// 添加 bypass 引用到 handler
+	if len(bypasses) > 0 {
+		bypassName := fmt.Sprintf("bypass-%d", node.ID)
+		if handler, ok := mainService["handler"].(map[string]interface{}); ok {
+			handler["bypass"] = bypassName
+		}
 	}
+
+	// 添加 admission 引用到 service
+	if len(admissions) > 0 {
+		admissionName := fmt.Sprintf("admission-%d", node.ID)
+		mainService["admission"] = admissionName
+	}
+
+	// 添加 hosts 引用到 handler
+	if len(hostMappings) > 0 {
+		hostsName := fmt.Sprintf("hosts-%d", node.ID)
+		if handler, ok := mainService["handler"].(map[string]interface{}); ok {
+			handler["hosts"] = hostsName
+		}
+	}
+
+	services := []map[string]interface{}{mainService}
 	config["services"] = services
 
 	// 认证器配置
@@ -48,6 +76,21 @@ func (g *ConfigGenerator) GenerateNodeConfig(node *model.Node) map[string]interf
 	// DNS 配置
 	if node.DNSServer != "" {
 		config["resolvers"] = g.generateResolvers(node)
+	}
+
+	// Bypass 配置
+	if len(bypasses) > 0 {
+		config["bypasses"] = g.generateBypassConfigs(node.ID, bypasses)
+	}
+
+	// Admission 配置
+	if len(admissions) > 0 {
+		config["admissions"] = g.generateAdmissionConfigs(node.ID, admissions)
+	}
+
+	// Hosts 配置
+	if len(hostMappings) > 0 {
+		config["hosts"] = g.generateHostsConfigs(node.ID, hostMappings)
 	}
 
 	return config
@@ -692,11 +735,107 @@ func normalizeTransport(transport string) string {
 }
 
 // GenerateTunnelExitConfig 生成隧道出口端配置 (部署在出口节点)
-// 出口节点只需要标准的代理服务，不需要特殊配置
+// 出口节点使用标准节点配置即可
 func (g *ConfigGenerator) GenerateTunnelExitConfig(tunnel *model.Tunnel) map[string]interface{} {
-	// 出口节点使用标准节点配置即可
 	if tunnel.ExitNode == nil {
 		return nil
 	}
 	return g.GenerateNodeConfig(tunnel.ExitNode)
+}
+
+// ==================== Bypass/Admission/Hosts 配置生成 ====================
+
+// generateBypassConfigs 生成 Bypass 分流规则配置
+func (g *ConfigGenerator) generateBypassConfigs(nodeID uint, bypasses []model.Bypass) []map[string]interface{} {
+	// 合并所有 bypass 规则到一个配置中
+	allMatchers := []string{}
+	whitelist := false
+
+	for _, b := range bypasses {
+		if b.Whitelist {
+			whitelist = true
+		}
+		var matchers []string
+		if err := json.Unmarshal([]byte(b.Matchers), &matchers); err == nil {
+			allMatchers = append(allMatchers, matchers...)
+		}
+	}
+
+	if len(allMatchers) == 0 {
+		return nil
+	}
+
+	return []map[string]interface{}{
+		{
+			"name":      fmt.Sprintf("bypass-%d", nodeID),
+			"whitelist": whitelist,
+			"matchers":  allMatchers,
+		},
+	}
+}
+
+// generateAdmissionConfigs 生成 Admission 准入控制配置
+func (g *ConfigGenerator) generateAdmissionConfigs(nodeID uint, admissions []model.Admission) []map[string]interface{} {
+	allMatchers := []string{}
+	whitelist := false
+
+	for _, a := range admissions {
+		if a.Whitelist {
+			whitelist = true
+		}
+		var matchers []string
+		if err := json.Unmarshal([]byte(a.Matchers), &matchers); err == nil {
+			allMatchers = append(allMatchers, matchers...)
+		}
+	}
+
+	if len(allMatchers) == 0 {
+		return nil
+	}
+
+	return []map[string]interface{}{
+		{
+			"name":      fmt.Sprintf("admission-%d", nodeID),
+			"whitelist": whitelist,
+			"matchers":  allMatchers,
+		},
+	}
+}
+
+// generateHostsConfigs 生成 Hosts 主机映射配置
+func (g *ConfigGenerator) generateHostsConfigs(nodeID uint, hostMappings []model.HostMapping) []map[string]interface{} {
+	type hostEntry struct {
+		Hostname string `json:"hostname"`
+		IP       string `json:"ip"`
+		Prefer   string `json:"prefer,omitempty"`
+	}
+
+	allMappings := []map[string]interface{}{}
+
+	for _, hm := range hostMappings {
+		var entries []hostEntry
+		if err := json.Unmarshal([]byte(hm.Mappings), &entries); err == nil {
+			for _, e := range entries {
+				mapping := map[string]interface{}{
+					"ip":       e.IP,
+					"hostname": e.Hostname,
+				}
+				if e.Prefer != "" {
+					mapping["prefer"] = e.Prefer
+				}
+				allMappings = append(allMappings, mapping)
+			}
+		}
+	}
+
+	if len(allMappings) == 0 {
+		return nil
+	}
+
+	return []map[string]interface{}{
+		{
+			"name":     fmt.Sprintf("hosts-%d", nodeID),
+			"mappings": allMappings,
+		},
+	}
 }

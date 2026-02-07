@@ -34,7 +34,7 @@ import {
 } from '@vicons/ionicons5'
 
 const props = withDefaults(defineProps<{
-  type?: 'nodes' | 'clients' | 'users' | 'notify' | 'forwards' | 'groups' | 'tunnels' | 'search' | 'plans' | 'default'
+  type?: 'nodes' | 'clients' | 'users' | 'notify' | 'forwards' | 'groups' | 'tunnels' | 'search' | 'plans' | 'rules' | 'default'
   title?: string
   description?: string
   actionText?: string
@@ -55,6 +55,7 @@ const iconMap: Record<string, any> = {
   tunnels: LinkOutline,
   search: SearchOutline,
   plans: CardOutline,
+  rules: SearchOutline,
   default: SearchOutline,
 }
 
@@ -68,6 +69,7 @@ const titleMap: Record<string, string> = {
   tunnels: '暂无隧道',
   search: '未找到匹配结果',
   plans: '暂无套餐',
+  rules: '暂无规则',
   default: '暂无数据',
 }
 
@@ -81,6 +83,7 @@ const descMap: Record<string, string> = {
   tunnels: '创建隧道连接入口和出口节点',
   search: '尝试修改搜索关键词',
   plans: '创建套餐来管理用户权限',
+  rules: '添加分流/准入/主机映射规则',
   default: '',
 }
 

@@ -291,6 +291,27 @@ func (s *Server) setupRoutes() {
 			auth.POST("/plans", s.createPlan)
 			auth.PUT("/plans/:id", s.updatePlan)
 			auth.DELETE("/plans/:id", s.deletePlan)
+
+			// Bypass 分流规则
+			auth.GET("/bypasses", s.listBypasses)
+			auth.GET("/bypasses/:id", s.getBypass)
+			auth.POST("/bypasses", s.createBypass)
+			auth.PUT("/bypasses/:id", s.updateBypass)
+			auth.DELETE("/bypasses/:id", s.deleteBypass)
+
+			// Admission 准入控制
+			auth.GET("/admissions", s.listAdmissions)
+			auth.GET("/admissions/:id", s.getAdmission)
+			auth.POST("/admissions", s.createAdmission)
+			auth.PUT("/admissions/:id", s.updateAdmission)
+			auth.DELETE("/admissions/:id", s.deleteAdmission)
+
+			// HostMapping 主机映射
+			auth.GET("/host-mappings", s.listHostMappings)
+			auth.GET("/host-mappings/:id", s.getHostMapping)
+			auth.POST("/host-mappings", s.createHostMapping)
+			auth.PUT("/host-mappings/:id", s.updateHostMapping)
+			auth.DELETE("/host-mappings/:id", s.deleteHostMapping)
 		}
 	}
 

@@ -128,6 +128,7 @@ import {
   ListOutline,
   MenuOutline,
   CardOutline,
+  ShieldCheckmarkOutline,
 } from '@vicons/ionicons5'
 import { useUserStore } from '../stores/user'
 import { useThemeStore } from '../stores/theme'
@@ -205,6 +206,11 @@ const menuOptions = [
     label: '隧道转发',
     key: 'tunnels',
     icon: renderIcon(LinkOutline),
+  },
+  {
+    label: '规则管理',
+    key: 'rules',
+    icon: renderIcon(ShieldCheckmarkOutline),
   },
   {
     label: '用户管理',

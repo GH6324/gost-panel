@@ -363,6 +363,41 @@ type OperationLog struct {
 	CreatedAt  time.Time `gorm:"index" json:"created_at"`
 }
 
+// Bypass 分流规则 (域名/IP 白名单或黑名单)
+type Bypass struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Name      string    `gorm:"size:100;not null" json:"name"`
+	Whitelist bool      `gorm:"default:false" json:"whitelist"` // true=白名单模式, false=黑名单模式
+	Matchers  string    `gorm:"type:text" json:"matchers"`      // JSON 数组: ["*.google.com", "10.0.0.0/8"]
+	NodeID    *uint     `gorm:"index" json:"node_id,omitempty"` // 关联节点 (可选，nil=全局)
+	OwnerID   *uint     `gorm:"index" json:"owner_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// Admission 准入控制 (连接 IP 白名单或黑名单)
+type Admission struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Name      string    `gorm:"size:100;not null" json:"name"`
+	Whitelist bool      `gorm:"default:false" json:"whitelist"` // true=白名单模式, false=黑名单模式
+	Matchers  string    `gorm:"type:text" json:"matchers"`      // JSON 数组: ["192.168.0.0/16"]
+	NodeID    *uint     `gorm:"index" json:"node_id,omitempty"`
+	OwnerID   *uint     `gorm:"index" json:"owner_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// HostMapping 自定义主机映射 (类似 /etc/hosts)
+type HostMapping struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	Name      string    `gorm:"size:100;not null" json:"name"`
+	Mappings  string    `gorm:"type:text" json:"mappings"` // JSON 数组: [{"hostname":"example.com","ip":"1.2.3.4"}]
+	NodeID    *uint     `gorm:"index" json:"node_id,omitempty"`
+	OwnerID   *uint     `gorm:"index" json:"owner_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // SiteConfig 网站配置
 type SiteConfig struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
@@ -387,7 +422,7 @@ func InitDB(dbPath string) (*gorm.DB, error) {
 	}
 
 	// 自动迁移
-	if err := db.AutoMigrate(&Node{}, &Client{}, &Service{}, &User{}, &Plan{}, &TrafficHistory{}, &NotifyChannel{}, &AlertRule{}, &AlertLog{}, &PortForward{}, &NodeGroup{}, &NodeGroupMember{}, &DNSConfig{}, &OperationLog{}, &ProxyChain{}, &ProxyChainHop{}, &Tunnel{}, &SiteConfig{}, &Tag{}, &NodeTag{}); err != nil {
+	if err := db.AutoMigrate(&Node{}, &Client{}, &Service{}, &User{}, &Plan{}, &TrafficHistory{}, &NotifyChannel{}, &AlertRule{}, &AlertLog{}, &PortForward{}, &NodeGroup{}, &NodeGroupMember{}, &DNSConfig{}, &OperationLog{}, &ProxyChain{}, &ProxyChainHop{}, &Tunnel{}, &SiteConfig{}, &Tag{}, &NodeTag{}, &Bypass{}, &Admission{}, &HostMapping{}); err != nil {
 		return nil, err
 	}
 

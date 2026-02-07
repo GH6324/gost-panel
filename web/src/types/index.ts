@@ -103,6 +103,12 @@ export type ProxyChainUpdateRequest = Record<string, unknown>
 export type ProxyChainHopRequest = Record<string, unknown>
 export type TunnelCreateRequest = Record<string, unknown>
 export type TunnelUpdateRequest = Record<string, unknown>
+export type BypassCreateRequest = Record<string, unknown>
+export type BypassUpdateRequest = Record<string, unknown>
+export type AdmissionCreateRequest = Record<string, unknown>
+export type AdmissionUpdateRequest = Record<string, unknown>
+export type HostMappingCreateRequest = Record<string, unknown>
+export type HostMappingUpdateRequest = Record<string, unknown>
 export type TagCreateRequest = { name: string; color?: string }
 export type TagUpdateRequest = { name?: string; color?: string }
 
@@ -319,3 +325,29 @@ export interface Plan extends BaseEntity {
 
 export type PlanCreateRequest = Record<string, unknown>
 export type PlanUpdateRequest = Record<string, unknown>
+
+// Bypass 分流规则
+export interface Bypass extends BaseEntity {
+  name: string
+  whitelist: boolean
+  matchers: string // JSON array
+  node_id?: number
+  owner_id?: number
+}
+
+// Admission 准入控制
+export interface Admission extends BaseEntity {
+  name: string
+  whitelist: boolean
+  matchers: string // JSON array
+  node_id?: number
+  owner_id?: number
+}
+
+// HostMapping 主机映射
+export interface HostMapping extends BaseEntity {
+  name: string
+  mappings: string // JSON array of {hostname, ip, prefer}
+  node_id?: number
+  owner_id?: number
+}

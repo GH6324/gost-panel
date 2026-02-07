@@ -26,6 +26,12 @@ import type {
   TagUpdateRequest,
   PlanCreateRequest,
   PlanUpdateRequest,
+  BypassCreateRequest,
+  BypassUpdateRequest,
+  AdmissionCreateRequest,
+  AdmissionUpdateRequest,
+  HostMappingCreateRequest,
+  HostMappingUpdateRequest,
   PaginationParams,
   ProfileUpdateRequest,
 } from '../types'
@@ -276,5 +282,26 @@ export const deletePlan = (id: number) => api.delete(`/plans/${id}`)
 export const assignUserPlan = (userId: number, planId: number) => api.post(`/users/${userId}/assign-plan`, { plan_id: planId })
 export const removeUserPlan = (userId: number) => api.post(`/users/${userId}/remove-plan`)
 export const renewUserPlan = (userId: number, days: number) => api.post(`/users/${userId}/renew-plan`, { days })
+
+// Bypass 分流规则
+export const getBypasses = () => api.get('/bypasses')
+export const getBypass = (id: number) => api.get(`/bypasses/${id}`)
+export const createBypass = (data: BypassCreateRequest) => api.post('/bypasses', data)
+export const updateBypass = (id: number, data: BypassUpdateRequest) => api.put(`/bypasses/${id}`, data)
+export const deleteBypass = (id: number) => api.delete(`/bypasses/${id}`)
+
+// Admission 准入控制
+export const getAdmissions = () => api.get('/admissions')
+export const getAdmission = (id: number) => api.get(`/admissions/${id}`)
+export const createAdmission = (data: AdmissionCreateRequest) => api.post('/admissions', data)
+export const updateAdmission = (id: number, data: AdmissionUpdateRequest) => api.put(`/admissions/${id}`, data)
+export const deleteAdmission = (id: number) => api.delete(`/admissions/${id}`)
+
+// HostMapping 主机映射
+export const getHostMappings = () => api.get('/host-mappings')
+export const getHostMapping = (id: number) => api.get(`/host-mappings/${id}`)
+export const createHostMapping = (data: HostMappingCreateRequest) => api.post('/host-mappings', data)
+export const updateHostMapping = (id: number, data: HostMappingUpdateRequest) => api.put(`/host-mappings/${id}`, data)
+export const deleteHostMapping = (id: number) => api.delete(`/host-mappings/${id}`)
 
 export default api
