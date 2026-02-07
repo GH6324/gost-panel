@@ -563,15 +563,24 @@ func (g *ConfigGenerator) generateResolvers(node *model.Node) []map[string]inter
 
 // GeneratePortForwardConfig 生成端口转发配置
 func (g *ConfigGenerator) GeneratePortForwardConfig(pf *model.PortForward) map[string]interface{} {
+	handler := map[string]interface{}{
+		"type": pf.Type,
+	}
+
+	listener := map[string]interface{}{
+		"type": pf.Type,
+	}
+
+	// RTCP/RUDP 远程转发需要在 listener 上配置 chain
+	if (pf.Type == "rtcp" || pf.Type == "rudp") && pf.ChainID != nil && *pf.ChainID > 0 {
+		listener["chain"] = fmt.Sprintf("chain-pf-%d", *pf.ChainID)
+	}
+
 	service := map[string]interface{}{
-		"name": pf.Name,
-		"addr": pf.LocalAddr,
-		"handler": map[string]interface{}{
-			"type": pf.Type,
-		},
-		"listener": map[string]interface{}{
-			"type": pf.Type,
-		},
+		"name":     pf.Name,
+		"addr":     pf.LocalAddr,
+		"handler":  handler,
+		"listener": listener,
 		"forwarder": map[string]interface{}{
 			"nodes": []map[string]interface{}{
 				{"name": "target", "addr": pf.RemoteAddr},

@@ -118,7 +118,7 @@ type PortForward struct {
 	ID          uint      `gorm:"primaryKey" json:"id"`
 	NodeID      uint      `gorm:"index" json:"node_id"`
 	Name        string    `gorm:"size:100;not null" json:"name"`
-	Type        string    `gorm:"size:20;not null" json:"type"`           // tcp/udp/rtcp/rudp
+	Type        string    `gorm:"size:20;not null" json:"type"`           // tcp/udp/rtcp/rudp/relay
 	LocalAddr   string    `gorm:"size:255" json:"local_addr"`             // 本地监听地址
 	RemoteAddr  string    `gorm:"size:255" json:"remote_addr"`            // 远程目标地址
 	ChainID     *uint     `gorm:"index" json:"chain_id,omitempty"`        // 使用的转发链

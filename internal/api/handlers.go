@@ -2372,7 +2372,9 @@ func (s *Server) updatePortForward(c *gin.Context) {
 	delete(updates, "id")
 	delete(updates, "owner_id")
 	delete(updates, "created_at")
+	delete(updates, "updated_at")
 	delete(updates, "description") // 前端发送但后端不支持
+	delete(updates, "node_name")   // 响应专用字段
 
 	// 兼容前端字段: protocol -> type
 	if protocol, ok := updates["protocol"]; ok {

@@ -40,6 +40,9 @@
         <n-form-item label="协议类型">
           <n-select v-model:value="form.protocol" :options="protocolOptions" />
         </n-form-item>
+        <n-alert v-if="isRemoteProtocol(form.protocol)" type="info" style="margin-bottom: 16px;" :bordered="false">
+          远程转发模式：流量从远端节点进入，通过代理链回传到本地目标。需要配置代理链。
+        </n-alert>
 
         <n-divider>源端配置</n-divider>
         <n-form-item label="监听地址">
@@ -62,6 +65,10 @@
           <n-select v-model:value="form.node_id" :options="nodeOptions" filterable placeholder="选择执行转发的节点" clearable />
           <n-text depth="3" style="margin-top: 4px; font-size: 12px;">留空表示在本地执行转发</n-text>
         </n-form-item>
+        <n-form-item label="代理链">
+          <n-select v-model:value="form.chain_id" :options="chainOptions" filterable placeholder="选择代理链 (可选)" clearable />
+          <n-text v-if="isRemoteProtocol(form.protocol)" depth="3" style="margin-top: 4px; font-size: 12px; color: #f0a020;">远程转发模式建议配置代理链</n-text>
+        </n-form-item>
 
         <n-divider>其他选项</n-divider>
         <n-form-item label="启用">
@@ -83,8 +90,8 @@
 
 <script setup lang="ts">
 import { ref, h, onMounted } from 'vue'
-import { NButton, NSpace, NTag, NDropdown, useMessage, useDialog } from 'naive-ui'
-import { getPortForwards, createPortForward, updatePortForward, deletePortForward, clonePortForward, getNodes } from '../api'
+import { NButton, NSpace, NTag, NDropdown, NAlert, useMessage, useDialog } from 'naive-ui'
+import { getPortForwards, createPortForward, updatePortForward, deletePortForward, clonePortForward, getNodes, getProxyChains } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import TableSkeleton from '../components/TableSkeleton.vue'
 import { useKeyboard } from '../composables/useKeyboard'
@@ -100,10 +107,11 @@ const showCreateModal = ref(false)
 const editingForward = ref<any>(null)
 
 const protocolOptions = [
-  { label: 'TCP', value: 'tcp' },
-  { label: 'UDP', value: 'udp' },
-  { label: 'RTCP (可靠 TCP)', value: 'rtcp' },
-  { label: 'RUDP (可靠 UDP)', value: 'rudp' },
+  { label: 'TCP 本地转发', value: 'tcp' },
+  { label: 'UDP 本地转发', value: 'udp' },
+  { label: 'RTCP 远程/反向 TCP', value: 'rtcp' },
+  { label: 'RUDP 远程/反向 UDP', value: 'rudp' },
+  { label: 'Relay 通用中继', value: 'relay' },
 ]
 
 const defaultForm = () => ({
@@ -114,6 +122,7 @@ const defaultForm = () => ({
   target_host: '',
   target_port: 80,
   node_id: null,
+  chain_id: null as number | null,
   enabled: true,
   description: '',
 })
@@ -121,6 +130,10 @@ const defaultForm = () => ({
 const form = ref(defaultForm())
 
 const nodeOptions = ref<any[]>([])
+const proxyChains = ref<any[]>([])
+const chainOptions = ref<any[]>([])
+
+const isRemoteProtocol = (protocol: string) => ['rtcp', 'rudp'].includes(protocol)
 
 const getProtocolLabel = (protocol: string) => {
   const opt = protocolOptions.find(o => o.value === protocol)
@@ -153,6 +166,16 @@ const columns = [
     key: 'node_name',
     width: 120,
     render: (row: any) => row.node_name || '本地',
+  },
+  {
+    title: '代理链',
+    key: 'chain_id',
+    width: 100,
+    render: (row: any) => {
+      if (!row.chain_id) return '-'
+      const chain = proxyChains.value.find((c: any) => c.id === row.chain_id)
+      return chain ? chain.name : `#${row.chain_id}`
+    },
   },
   {
     title: '状态',
@@ -211,6 +234,19 @@ const loadNodes = async () => {
     }))
   } catch (e) {
     console.error('Failed to load nodes', e)
+  }
+}
+
+const loadProxyChains = async () => {
+  try {
+    const data: any = await getProxyChains()
+    proxyChains.value = data || []
+    chainOptions.value = proxyChains.value.map((c: any) => ({
+      label: c.name,
+      value: c.id,
+    }))
+  } catch (e) {
+    console.error('Failed to load proxy chains', e)
   }
 }
 
@@ -285,6 +321,7 @@ const handleClone = async (row: any) => {
 onMounted(() => {
   loadPortForwards()
   loadNodes()
+  loadProxyChains()
 })
 
 // Keyboard shortcuts
