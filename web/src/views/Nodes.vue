@@ -123,7 +123,8 @@
               <n-select v-model:value="form.protocol" :options="protocolOptions" style="width: 200px" />
             </n-form-item>
             <n-form-item label="传输层">
-              <n-select v-model:value="form.transport" :options="transportOptions" style="width: 200px" />
+              <n-input v-if="isFixedTransport" :value="fixedTransportLabels[form.protocol]" disabled style="width: 300px" />
+              <n-select v-else v-model:value="form.transport" :options="transportOptions" style="width: 200px" />
             </n-form-item>
 
             <!-- SOCKS5/HTTP 认证 -->
@@ -152,7 +153,7 @@
         <n-tab-pane name="transport" tab="传输">
           <n-form :model="form" label-placement="left" label-width="120">
             <!-- TLS -->
-            <template v-if="['tls', 'wss', 'h2', 'quic', 'grpc'].includes(form.transport)">
+            <template v-if="form.protocol === 'http2' || (!isFixedTransport && ['tls', 'wss', 'h2', 'quic', 'grpc'].includes(form.transport))">
               <n-form-item label="启用 TLS">
                 <n-switch v-model:value="form.tls_enabled" />
               </n-form-item>
@@ -168,7 +169,7 @@
             </template>
 
             <!-- WebSocket -->
-            <template v-if="['ws', 'wss', 'mws', 'mwss'].includes(form.transport)">
+            <template v-if="!isFixedTransport && ['ws', 'wss', 'mws', 'mwss'].includes(form.transport)">
               <n-form-item label="WS 路径">
                 <n-input v-model:value="form.ws_path" placeholder="/ws" />
               </n-form-item>
@@ -178,7 +179,7 @@
             </template>
 
             <!-- KCP 参数 -->
-            <template v-if="form.transport === 'kcp'">
+            <template v-if="!isFixedTransport && form.transport === 'kcp'">
               <n-divider>KCP 参数</n-divider>
               <n-form-item label="MTU">
                 <n-input-number v-model:value="kcpParams.mtu" :min="64" :max="9000" :default-value="1350" style="width: 150px" />
@@ -198,7 +199,7 @@
             </template>
 
             <!-- TLS 高级选项 -->
-            <template v-if="['tls', 'wss', 'h2', 'quic', 'grpc', 'mwss', 'http3', 'dtls'].includes(form.transport)">
+            <template v-if="form.protocol === 'http2' || (!isFixedTransport && ['tls', 'wss', 'h2', 'quic', 'grpc', 'mwss', 'http3', 'dtls'].includes(form.transport))">
               <n-divider>TLS 高级选项</n-divider>
               <n-form-item label="ALPN">
                 <n-input v-model:value="form.tls_alpn" placeholder="h2,http/1.1 (逗号分隔)" />
@@ -490,7 +491,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, h, onMounted, computed, nextTick } from 'vue'
+import { ref, h, onMounted, computed, nextTick, watch } from 'vue'
 import { NButton, NSpace, NTag, NProgress, NCollapse, NCollapseItem, NInputGroup, NText, NDivider, NTabs, NTabPane, NDropdown, NList, NListItem, NEmpty, NSpin, useMessage, useDialog } from 'naive-ui'
 import { getNodesPaginated, createNode, updateNode, deleteNode, cloneNode, getNodeGostConfig, syncNodeConfig, getNodeProxyURI, getTemplates, getTemplateCategories, getNodeInstallScript, getTags, createTag, deleteTag, getNodeTags, setNodeTags, batchEnableNodes, batchDisableNodes, batchDeleteNodes, batchSyncNodes, pingNode, pingAllNodes, getConfigVersions, createConfigVersion, getConfigVersion, restoreConfigVersion, deleteConfigVersion, getNodeHealthLogs } from '../api'
 import EmptyState from '../components/EmptyState.vue'
@@ -583,8 +584,8 @@ const protocolOptions = [
   { label: 'TAP (二层网络)', value: 'tap' },
 ]
 
-// 传输层选项
-const transportOptions = [
+// 传输层选项（完整列表）
+const allTransportOptions = [
   { label: 'TCP', value: 'tcp' },
   { label: 'UDP', value: 'udp' },
   { label: 'TCP + UDP', value: 'tcp+udp' },
@@ -612,6 +613,64 @@ const transportOptions = [
   { label: 'Fake TCP (FTCP)', value: 'ftcp' },
   { label: 'ICMP Tunnel', value: 'icmp' },
 ]
+
+// 协议-传输兼容矩阵
+// 固定传输协议：sshd/redirect/redu/tun/tap/http2 的传输由协议决定，不可选择
+const fixedTransportProtocols = ['sshd', 'redirect', 'redu', 'tun', 'tap', 'http2']
+
+// 流式传输（TCP 类协议可用的所有传输）
+const streamTransports = [
+  'tcp', 'tcp+udp', 'tls', 'mtls', 'mtcp',
+  'ws', 'wss', 'mws', 'mwss',
+  'h2', 'h2c', 'http3', 'h3', 'wt',
+  'quic', 'kcp', 'grpc', 'pht', 'phts',
+  'ssh', 'dtls', 'ohttp', 'otls', 'ftcp', 'icmp',
+]
+
+// 各协议允许的传输列表
+const protocolTransportMap: Record<string, string[]> = {
+  'socks5': streamTransports,
+  'socks4': streamTransports,
+  'http':   streamTransports,
+  'ss':     streamTransports,
+  'auto':   streamTransports,
+  'sni':    streamTransports,
+  'tcp':    streamTransports,
+  'relay':  [...streamTransports, 'udp'],
+  'dns':    ['tcp', 'udp', 'tls'],
+  'udp':    ['udp'],
+  'ssu':    ['udp'],
+}
+
+// 固定传输协议的说明
+const fixedTransportLabels: Record<string, string> = {
+  'sshd': 'SSH (由协议决定)',
+  'redirect': 'Redirect (由协议决定)',
+  'redu': 'REDU (由协议决定)',
+  'tun': 'TUN (由协议决定)',
+  'tap': 'TAP (由协议决定)',
+  'http2': 'HTTP/2 + TLS (由协议决定)',
+}
+
+// 是否为固定传输协议
+const isFixedTransport = computed(() => fixedTransportProtocols.includes(form.value.protocol))
+
+// 根据当前协议过滤可用传输选项
+const transportOptions = computed(() => {
+  if (isFixedTransport.value) return []
+  const allowed = protocolTransportMap[form.value.protocol]
+  if (!allowed) return allTransportOptions
+  return allTransportOptions.filter(opt => allowed.includes(opt.value))
+})
+
+// 协议切换时自动修正传输
+watch(() => form.value.protocol, (newProtocol) => {
+  if (fixedTransportProtocols.includes(newProtocol)) return
+  const allowed = protocolTransportMap[newProtocol]
+  if (allowed && !allowed.includes(form.value.transport)) {
+    form.value.transport = allowed[0]
+  }
+})
 
 // SS 加密方法
 const ssMethodOptions = [
