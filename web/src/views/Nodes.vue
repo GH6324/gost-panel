@@ -179,7 +179,7 @@
             </template>
 
             <!-- WebSocket -->
-            <template v-if="['ws', 'wss'].includes(form.transport)">
+            <template v-if="['ws', 'wss', 'mws', 'mwss'].includes(form.transport)">
               <n-form-item label="WS 路径">
                 <n-input v-model:value="form.ws_path" placeholder="/ws" />
               </n-form-item>
@@ -433,6 +433,9 @@ const protocolOptions = [
   { label: 'UDP Forward', value: 'udp' },
   { label: 'SNI', value: 'sni' },
   { label: 'DNS', value: 'dns' },
+  { label: 'SSH Tunnel (SSHD)', value: 'sshd' },
+  { label: 'Redirect (透明代理)', value: 'redirect' },
+  { label: 'TUN (全局代理)', value: 'tun' },
 ]
 
 // 传输层选项
@@ -444,13 +447,20 @@ const transportOptions = [
   { label: 'mTLS', value: 'mtls' },
   { label: 'WebSocket (WS)', value: 'ws' },
   { label: 'WebSocket + TLS (WSS)', value: 'wss' },
+  { label: 'Multiplex WS (mWS)', value: 'mws' },
+  { label: 'Multiplex WS + TLS (mWSS)', value: 'mwss' },
   { label: 'HTTP/2 (H2)', value: 'h2' },
   { label: 'HTTP/2 Clear (H2C)', value: 'h2c' },
+  { label: 'HTTP/3', value: 'http3' },
   { label: 'QUIC', value: 'quic' },
   { label: 'KCP', value: 'kcp' },
   { label: 'gRPC', value: 'grpc' },
   { label: 'PHT', value: 'pht' },
   { label: 'PHTS', value: 'phts' },
+  { label: 'SSH', value: 'ssh' },
+  { label: 'DTLS', value: 'dtls' },
+  { label: 'Obfs-HTTP', value: 'ohttp' },
+  { label: 'Obfs-TLS', value: 'otls' },
 ]
 
 // SS 加密方法

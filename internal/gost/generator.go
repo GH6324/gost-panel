@@ -225,6 +225,21 @@ func (g *ConfigGenerator) generateHandler(node *model.Node) map[string]interface
 
 	case "dns":
 		handler["type"] = "dns"
+
+	case "sshd":
+		handler["type"] = "sshd"
+		if node.ProxyUser != "" {
+			handler["auther"] = "main-auth"
+		}
+
+	case "redirect":
+		handler["type"] = "redirect"
+
+	case "tun":
+		handler["type"] = "tun"
+		handler["metadata"] = map[string]interface{}{
+			"net": "198.18.0.0/15",
+		}
 	}
 
 	// DNS 解析器
@@ -238,6 +253,19 @@ func (g *ConfigGenerator) generateHandler(node *model.Node) map[string]interface
 // generateListener 生成 Listener 配置
 func (g *ConfigGenerator) generateListener(node *model.Node) map[string]interface{} {
 	listener := map[string]interface{}{}
+
+	// 某些协议的 listener 类型由协议决定，而非 transport
+	switch node.Protocol {
+	case "sshd":
+		listener["type"] = "sshd"
+		return listener
+	case "redirect":
+		listener["type"] = "redirect"
+		return listener
+	case "tun":
+		listener["type"] = "tun"
+		return listener
+	}
 
 	switch node.Transport {
 	case "tcp", "", "tcp+udp":
@@ -291,26 +319,32 @@ func (g *ConfigGenerator) generateListener(node *model.Node) map[string]interfac
 
 	case "kcp":
 		listener["type"] = "kcp"
-		// KCP 默认配置
-		listener["metadata"] = map[string]interface{}{
-			"kcp": map[string]interface{}{
-				"mtu":          1350,
-				"sndwnd":       1024,
-				"rcvwnd":       1024,
-				"datashard":    10,
-				"parityshard":  3,
-				"nodelay":      1,
-				"interval":     20,
-				"resend":       2,
-				"nc":           1,
-				"smuxver":      1,
-				"smuxbuf":      4194304,
-				"streambuf":    2097152,
-				"keepalive":    10,
-				"snmpperiod":   60,
-				"tcp":          false,
-			},
+		// KCP 配置: 优先使用 TransportOpts，否则用默认值
+		kcpConfig := map[string]interface{}{
+			"mtu":        1350,
+			"sndwnd":     1024,
+			"rcvwnd":     1024,
+			"datashard":  10,
+			"parityshard": 3,
+			"nodelay":    1,
+			"interval":   20,
+			"resend":     2,
+			"nc":         1,
+			"smuxver":    1,
+			"smuxbuf":    4194304,
+			"streambuf":  2097152,
+			"keepalive":  10,
+			"snmpperiod": 60,
+			"tcp":        false,
 		}
+		if opts := g.parseTransportOpts(node); opts != nil {
+			if kcp, ok := opts["kcp"].(map[string]interface{}); ok {
+				for k, v := range kcp {
+					kcpConfig[k] = v
+				}
+			}
+		}
+		listener["metadata"] = map[string]interface{}{"kcp": kcpConfig}
 
 	case "grpc":
 		listener["type"] = "grpc"
@@ -322,9 +356,74 @@ func (g *ConfigGenerator) generateListener(node *model.Node) map[string]interfac
 	case "phts":
 		listener["type"] = "phts"
 		listener["tls"] = g.generateTLSConfig(node)
+
+	case "ssh":
+		listener["type"] = "ssh"
+
+	case "sshd":
+		listener["type"] = "sshd"
+
+	case "mws":
+		listener["type"] = "mws"
+		if node.WSPath != "" || node.WSHost != "" {
+			metadata := map[string]interface{}{}
+			if node.WSPath != "" {
+				metadata["path"] = node.WSPath
+			}
+			if node.WSHost != "" {
+				metadata["host"] = node.WSHost
+			}
+			listener["metadata"] = metadata
+		}
+
+	case "mwss":
+		listener["type"] = "mwss"
+		listener["tls"] = g.generateTLSConfig(node)
+		if node.WSPath != "" || node.WSHost != "" {
+			metadata := map[string]interface{}{}
+			if node.WSPath != "" {
+				metadata["path"] = node.WSPath
+			}
+			if node.WSHost != "" {
+				metadata["host"] = node.WSHost
+			}
+			listener["metadata"] = metadata
+		}
+
+	case "http3":
+		listener["type"] = "http3"
+		listener["tls"] = g.generateTLSConfig(node)
+
+	case "dtls":
+		listener["type"] = "dtls"
+		listener["tls"] = g.generateTLSConfig(node)
+
+	case "ohttp":
+		listener["type"] = "ohttp"
+
+	case "otls":
+		listener["type"] = "otls"
+
+	case "redirect":
+		listener["type"] = "redirect"
+
+	case "tun":
+		listener["type"] = "tun"
 	}
 
 	return listener
+}
+
+// parseTransportOpts 解析 TransportOpts JSON
+func (g *ConfigGenerator) parseTransportOpts(node *model.Node) map[string]interface{} {
+	if node.TransportOpts == "" {
+		return nil
+	}
+	var opts map[string]interface{}
+	if err := json.Unmarshal([]byte(node.TransportOpts), &opts); err != nil {
+		return nil
+	}
+	return opts
 }
 
 // generateTLSConfig 生成 TLS 配置
