@@ -1887,6 +1887,7 @@ func (s *Server) disable2FA(c *gin.Context) {
 // ==================== 流量历史 ====================
 
 func (s *Server) getTrafficHistory(c *gin.Context) {
+	userID, isAdmin := getUserInfo(c)
 	hoursStr := c.DefaultQuery("hours", "1")
 	hours, _ := strconv.Atoi(hoursStr)
 
@@ -1896,8 +1897,18 @@ func (s *Server) getTrafficHistory(c *gin.Context) {
 		id, err := strconv.ParseUint(nodeIDStr, 10, 32)
 		if err == nil {
 			uid := uint(id)
+			// Verify ownership of the node
+			if _, err := s.svc.GetNodeByOwner(uid, userID, isAdmin); err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "节点不存在"})
+				return
+			}
 			nodeID = &uid
 		}
+	} else if !isAdmin {
+		// Non-admin without node_id: only show their own nodes' traffic
+		// For simplicity, return empty if no node_id specified for non-admin
+		c.JSON(http.StatusOK, []interface{}{})
+		return
 	}
 
 	history, err := s.svc.GetTrafficHistory(nodeID, hours)
@@ -4106,11 +4117,22 @@ func (s *Server) setNodeTags(c *gin.Context) {
 
 // getNodesByTag 获取具有指定标签的节点
 func (s *Server) getNodesByTag(c *gin.Context) {
+	userID, isAdmin := getUserInfo(c)
 	tagID, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 	nodes, err := s.svc.GetNodesByTag(uint(tagID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	// Filter by ownership for non-admin users
+	if !isAdmin {
+		filtered := make([]model.Node, 0)
+		for _, n := range nodes {
+			if n.OwnerID != nil && *n.OwnerID == userID {
+				filtered = append(filtered, n)
+			}
+		}
+		nodes = filtered
 	}
 	c.JSON(http.StatusOK, nodes)
 }
