@@ -523,11 +523,14 @@ EOF
 # 主流程
 main() {
     install_deps
-    install_gost
 
     local use_agent="false"
     if download_agent; then
         use_agent="true"
+        log_info "Agent will auto-download GOST if needed, skipping manual GOST install"
+    else
+        # 没有 agent 时才需要手动安装 GOST
+        install_gost
     fi
 
     download_config
