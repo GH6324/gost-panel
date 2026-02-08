@@ -667,7 +667,7 @@ const transportOptions = computed(() => {
 watch(() => form.value.protocol, (newProtocol) => {
   if (fixedTransportProtocols.includes(newProtocol)) return
   const allowed = protocolTransportMap[newProtocol]
-  if (allowed && !allowed.includes(form.value.transport)) {
+  if (allowed && allowed[0] && !allowed.includes(form.value.transport)) {
     form.value.transport = allowed[0]
   }
 })
