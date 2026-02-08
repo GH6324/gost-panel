@@ -1022,16 +1022,28 @@ set -e
 PANEL_URL="%s"
 CLIENT_TOKEN="%s"
 
+# HTTP 下载 (自动检测 curl/wget)
+dl() {
+    local url="$1" output="$2"
+    if command -v curl &>/dev/null; then
+        [ -n "$output" ] && curl -fsSL "$url" -o "$output" || curl -fsSL "$url"
+    elif command -v wget &>/dev/null; then
+        [ -n "$output" ] && wget -qO "$output" "$url" || wget -qO- "$url"
+    else
+        echo "ERROR: curl and wget not found"; exit 1
+    fi
+}
+
 # 安装 GOST
 echo "Installing GOST..."
-bash <(curl -fsSL https://github.com/go-gost/gost/raw/master/install.sh) --install
+bash <(dl https://github.com/go-gost/gost/raw/master/install.sh) --install
 
 # 创建配置目录
 mkdir -p /etc/gost
 
 # 下载配置
 echo "Downloading config..."
-curl -fsSL "${PANEL_URL}/agent/config/${CLIENT_TOKEN}" -o /etc/gost/gost.yml
+dl "${PANEL_URL}/agent/config/${CLIENT_TOKEN}" /etc/gost/gost.yml
 
 # 创建 systemd 服务
 cat > /etc/systemd/system/gost.service << 'EOF'
@@ -1052,7 +1064,11 @@ EOF
 # 创建心跳脚本
 cat > /etc/gost/heartbeat.sh << HEARTBEAT
 #!/bin/bash
-curl -fsSL -X POST "${PANEL_URL}/agent/client-heartbeat/${CLIENT_TOKEN}" > /dev/null 2>&1
+if command -v curl &>/dev/null; then
+    curl -fsSL -X POST "${PANEL_URL}/agent/client-heartbeat/${CLIENT_TOKEN}" > /dev/null 2>&1
+elif command -v wget &>/dev/null; then
+    wget -qO /dev/null --post-data="" "${PANEL_URL}/agent/client-heartbeat/${CLIENT_TOKEN}" 2>/dev/null
+fi
 HEARTBEAT
 chmod +x /etc/gost/heartbeat.sh
 

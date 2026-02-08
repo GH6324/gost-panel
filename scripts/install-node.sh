@@ -1,7 +1,8 @@
 #!/bin/bash
 # GOST Panel 节点端安装脚本
 # 支持: Linux (amd64, arm64, armv7, armv6, mips, mipsle, mips64)
-# 用法: curl -fsSL https://panel:8080/scripts/install-node.sh | bash -s -- -p http://panel:8080 -t TOKEN
+# 用法: curl -fsSL URL | bash -s -- -p PANEL_URL -t TOKEN
+#   或: wget -qO- URL | bash -s -- -p PANEL_URL -t TOKEN
 
 set -e
 
@@ -20,6 +21,19 @@ FORCE_ARCH=""
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# HTTP 下载 (自动检测 curl/wget)
+dl() {
+    local url="$1" output="$2"
+    if command -v curl &>/dev/null; then
+        [ -n "$output" ] && curl -fsSL "$url" -o "$output" || curl -fsSL "$url"
+    elif command -v wget &>/dev/null; then
+        [ -n "$output" ] && wget -qO "$output" "$url" || wget -qO- "$url"
+    else
+        log_error "curl and wget not found, please install one of them"
+        exit 1
+    fi
+}
 
 # 解析参数
 while [[ $# -gt 0 ]]; do
@@ -130,26 +144,31 @@ log_info "Package manager: $PKG_MANAGER"
 
 # 安装依赖
 install_deps() {
-    log_info "Installing dependencies..."
-    case $PKG_MANAGER in
-        apt)
-            apt-get update -qq
-            apt-get install -y -qq curl tar ca-certificates
-            ;;
-        yum)
-            yum install -y -q curl tar ca-certificates
-            ;;
-        apk)
-            apk add --no-cache curl tar ca-certificates
-            ;;
-        opkg)
-            opkg update
-            opkg install curl tar ca-certificates
-            ;;
-        *)
-            log_warn "Unknown package manager, assuming dependencies are installed"
-            ;;
-    esac
+    # 如果已有 curl 或 wget，跳过安装
+    if command -v curl &>/dev/null || command -v wget &>/dev/null; then
+        log_info "Download tool found: $(command -v curl || command -v wget)"
+    else
+        log_info "Installing dependencies..."
+        case $PKG_MANAGER in
+            apt)
+                apt-get update -qq
+                apt-get install -y -qq curl tar ca-certificates || apt-get install -y -qq wget tar ca-certificates
+                ;;
+            yum)
+                yum install -y -q curl tar ca-certificates || yum install -y -q wget tar ca-certificates
+                ;;
+            apk)
+                apk add --no-cache curl tar ca-certificates || apk add --no-cache wget tar ca-certificates
+                ;;
+            opkg)
+                opkg update
+                opkg install curl tar ca-certificates || opkg install wget tar ca-certificates
+                ;;
+            *)
+                log_warn "Unknown package manager, assuming dependencies are installed"
+                ;;
+        esac
+    fi
 }
 
 # 检测 init 系统
@@ -182,7 +201,7 @@ install_gost() {
     local gost_url="https://github.com/go-gost/gost/releases/download/v${GOST_VERSION}/gost_${GOST_VERSION}_linux_${GOST_ARCH}.tar.gz"
 
     log_info "Downloading GOST from $gost_url"
-    curl -fsSL "$gost_url" -o /tmp/gost.tar.gz
+    dl "$gost_url" /tmp/gost.tar.gz
 
     mkdir -p /tmp/gost-extract
     tar -xzf /tmp/gost.tar.gz -C /tmp/gost-extract
@@ -210,7 +229,7 @@ download_agent() {
     rm -f "$INSTALL_DIR/gost-agent"
 
     # 获取最新版本
-    local latest_version=$(curl -s "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+    local latest_version=$(dl "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
     if [ -z "$latest_version" ]; then
         latest_version="v1.0.0"
     fi
@@ -219,7 +238,7 @@ download_agent() {
     local agent_url="https://github.com/$REPO/releases/download/$latest_version/gost-agent-linux-$GOST_ARCH"
 
     log_info "Downloading agent from GitHub ($latest_version)..."
-    if curl -fsSL "$agent_url" -o "$INSTALL_DIR/gost-agent" 2>/dev/null; then
+    if dl "$agent_url" "$INSTALL_DIR/gost-agent" 2>/dev/null; then
         chmod +x "$INSTALL_DIR/gost-agent"
         log_info "Agent downloaded to $INSTALL_DIR/gost-agent"
         return 0
@@ -228,7 +247,7 @@ download_agent() {
     # 回退: 从面板下载
     log_warn "GitHub download failed, trying panel..."
     local panel_agent_url="$PANEL_URL/agent/download/linux/$GOST_ARCH"
-    if curl -fsSL "$panel_agent_url" -o "$INSTALL_DIR/gost-agent" 2>/dev/null; then
+    if dl "$panel_agent_url" "$INSTALL_DIR/gost-agent" 2>/dev/null; then
         chmod +x "$INSTALL_DIR/gost-agent"
         log_info "Agent downloaded from panel"
         return 0
@@ -243,7 +262,7 @@ download_config() {
     log_info "[3/5] Downloading config..."
 
     mkdir -p /etc/gost
-    curl -fsSL "$PANEL_URL/agent/config/$TOKEN" -o /etc/gost/gost.yml
+    dl "$PANEL_URL/agent/config/$TOKEN" /etc/gost/gost.yml
     log_info "Config saved to /etc/gost/gost.yml"
 }
 

@@ -898,7 +898,7 @@ func (s *Server) getNodeInstallScript(c *gin.Context) {
 `, oneLineCommand)
 	} else {
 		// Bash 安装命令
-		oneLineCommand = fmt.Sprintf(`curl -fsSL "%s/install-node.sh" | bash -s -- -p "%s" -t "%s"`, githubRaw, panelURL, node.AgentToken)
+		oneLineCommand = fmt.Sprintf(`(curl -fsSL "%s/install-node.sh" 2>/dev/null || wget -qO- "%s/install-node.sh") | bash -s -- -p "%s" -t "%s"`, githubRaw, githubRaw, panelURL, node.AgentToken)
 		script = fmt.Sprintf(`#!/bin/bash
 # GOST Panel Node Installation
 # Supported: Linux (amd64, arm64, armv7, armv6, mips, mipsle)
@@ -907,8 +907,8 @@ func (s *Server) getNodeInstallScript(c *gin.Context) {
 %s
 
 # Or with forced architecture (for cross-compilation):
-# curl -fsSL "%s/install-node.sh" | bash -s -- -p "%s" -t "%s" -a armv6
-`, oneLineCommand, githubRaw, panelURL, node.AgentToken)
+# (curl -fsSL "%s/install-node.sh" 2>/dev/null || wget -qO- "%s/install-node.sh") | bash -s -- -p "%s" -t "%s" -a armv6
+`, oneLineCommand, githubRaw, githubRaw, panelURL, node.AgentToken)
 	}
 
 	c.JSON(http.StatusOK, gin.H{
@@ -1101,7 +1101,7 @@ func (s *Server) getClientInstallScript(c *gin.Context) {
 `, client.Name, client.LocalPort, oneLineCommand)
 	} else {
 		// Bash 安装命令
-		oneLineCommand = fmt.Sprintf(`curl -fsSL "%s/install-client.sh" | bash -s -- -p "%s" -t "%s"`, githubRaw, panelURL, client.Token)
+		oneLineCommand = fmt.Sprintf(`(curl -fsSL "%s/install-client.sh" 2>/dev/null || wget -qO- "%s/install-client.sh") | bash -s -- -p "%s" -t "%s"`, githubRaw, githubRaw, panelURL, client.Token)
 		script = fmt.Sprintf(`#!/bin/bash
 # GOST Panel Client Installation
 # Supported: Linux (amd64, arm64, armv7, armv6, mips, mipsle)
@@ -1113,8 +1113,8 @@ func (s *Server) getClientInstallScript(c *gin.Context) {
 %s
 
 # Or with forced architecture:
-# curl -fsSL "%s/install-client.sh" | bash -s -- -p "%s" -t "%s" -a armv6
-`, client.Name, client.LocalPort, oneLineCommand, githubRaw, panelURL, client.Token)
+# (curl -fsSL "%s/install-client.sh" 2>/dev/null || wget -qO- "%s/install-client.sh") | bash -s -- -p "%s" -t "%s" -a armv6
+`, client.Name, client.LocalPort, oneLineCommand, githubRaw, githubRaw, panelURL, client.Token)
 	}
 
 	c.JSON(http.StatusOK, gin.H{

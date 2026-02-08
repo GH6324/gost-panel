@@ -1,7 +1,8 @@
 #!/bin/bash
 # GOST Panel 客户端安装脚本
 # 支持: Linux (amd64, arm64, armv7, armv6, mips, mipsle, mips64)
-# 用法: curl -fsSL https://panel:8080/scripts/install-client.sh | bash -s -- -p http://panel:8080 -t TOKEN
+# 用法: curl -fsSL URL | bash -s -- -p PANEL_URL -t TOKEN
+#   或: wget -qO- URL | bash -s -- -p PANEL_URL -t TOKEN
 
 set -e
 
@@ -20,6 +21,19 @@ FORCE_ARCH=""
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
+# HTTP 下载 (自动检测 curl/wget)
+dl() {
+    local url="$1" output="$2"
+    if command -v curl &>/dev/null; then
+        [ -n "$output" ] && curl -fsSL "$url" -o "$output" || curl -fsSL "$url"
+    elif command -v wget &>/dev/null; then
+        [ -n "$output" ] && wget -qO "$output" "$url" || wget -qO- "$url"
+    else
+        log_error "curl and wget not found, please install one of them"
+        exit 1
+    fi
+}
 
 # 解析参数
 while [[ $# -gt 0 ]]; do
@@ -124,7 +138,7 @@ install_gost() {
     local gost_url="https://github.com/go-gost/gost/releases/download/v${GOST_VERSION}/gost_${GOST_VERSION}_linux_${GOST_ARCH}.tar.gz"
     log_info "Downloading GOST..."
 
-    curl -fsSL "$gost_url" -o /tmp/gost.tar.gz
+    dl "$gost_url" /tmp/gost.tar.gz
     mkdir -p /tmp/gost-extract
     tar -xzf /tmp/gost.tar.gz -C /tmp/gost-extract
     mv /tmp/gost-extract/gost /usr/local/bin/
@@ -139,7 +153,7 @@ download_config() {
     log_info "[2/4] Downloading config..."
 
     mkdir -p /etc/gost
-    curl -fsSL "$PANEL_URL/agent/config/$TOKEN" -o /etc/gost/client.yml
+    dl "$PANEL_URL/agent/config/$TOKEN" /etc/gost/client.yml
     log_info "Config saved to /etc/gost/client.yml"
 }
 
