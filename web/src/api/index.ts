@@ -148,7 +148,7 @@ export const updateProfile = (data: ProfileUpdateRequest) => api.put('/profile',
 export const enable2FA = () => api.post('/profile/2fa/enable')
 export const verify2FA = (code: string) => api.post('/profile/2fa/verify', { code })
 export const disable2FA = (password: string) => api.post('/profile/2fa/disable', { password })
-export const login2FA = (temp_token: string, code: string) => axios.post('/api/login/2fa', { temp_token, code })
+export const login2FA = (temp_token: string, code: string) => api.post('/login/2fa', { temp_token, code })
 
 // 用户注册和验证 (公开接口)
 export const register = (username: string, email: string, password: string) =>

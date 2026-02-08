@@ -1503,6 +1503,12 @@ func (s *Server) agentGetConfig(c *gin.Context) {
 // ==================== 用户管理 ====================
 
 func (s *Server) listUsers(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	users, err := s.svc.GetUsersWithTrafficSummary()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -1512,6 +1518,12 @@ func (s *Server) listUsers(c *gin.Context) {
 }
 
 func (s *Server) getUser(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 	user, err := s.svc.GetUser(uint(id))
 	if err != nil {
@@ -1565,6 +1577,12 @@ func (s *Server) createUser(c *gin.Context) {
 }
 
 func (s *Server) updateUser(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 
 	var updates map[string]interface{}
@@ -1572,6 +1590,10 @@ func (s *Server) updateUser(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+
+	// 防止篡改敏感字段
+	delete(updates, "id")
+	delete(updates, "created_at")
 
 	if err := s.svc.UpdateUser(uint(id), updates); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -1582,6 +1604,12 @@ func (s *Server) updateUser(c *gin.Context) {
 }
 
 func (s *Server) deleteUser(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 
 	if err := s.svc.DeleteUser(uint(id)); err != nil {
@@ -1873,6 +1901,12 @@ func (s *Server) getTrafficHistory(c *gin.Context) {
 // ==================== 通知渠道管理 ====================
 
 func (s *Server) listNotifyChannels(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	channels, err := s.svc.GetAlertService().ListChannels()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -1882,6 +1916,12 @@ func (s *Server) listNotifyChannels(c *gin.Context) {
 }
 
 func (s *Server) getNotifyChannel(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 	channel, err := s.svc.GetAlertService().GetChannel(uint(id))
 	if err != nil {
@@ -1899,6 +1939,12 @@ type CreateNotifyChannelRequest struct {
 }
 
 func (s *Server) createNotifyChannel(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	var req CreateNotifyChannelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -1928,6 +1974,12 @@ func (s *Server) createNotifyChannel(c *gin.Context) {
 }
 
 func (s *Server) updateNotifyChannel(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 
 	var updates map[string]interface{}
@@ -1960,6 +2012,12 @@ func (s *Server) updateNotifyChannel(c *gin.Context) {
 }
 
 func (s *Server) deleteNotifyChannel(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 
 	if err := s.svc.GetAlertService().DeleteChannel(uint(id)); err != nil {
@@ -1971,6 +2029,12 @@ func (s *Server) deleteNotifyChannel(c *gin.Context) {
 }
 
 func (s *Server) testNotifyChannel(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 
 	if err := s.svc.GetAlertService().TestChannel(uint(id)); err != nil {
@@ -1984,6 +2048,12 @@ func (s *Server) testNotifyChannel(c *gin.Context) {
 // ==================== 告警规则管理 ====================
 
 func (s *Server) listAlertRules(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	rules, err := s.svc.GetAlertService().ListRules()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -1995,6 +2065,12 @@ func (s *Server) listAlertRules(c *gin.Context) {
 }
 
 func (s *Server) getAlertRule(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 	rule, err := s.svc.GetAlertService().GetRule(uint(id))
 	if err != nil {
@@ -2064,6 +2140,12 @@ type CreateAlertRuleRequest struct {
 }
 
 func (s *Server) createAlertRule(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	var req CreateAlertRuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -2136,6 +2218,12 @@ func (s *Server) createAlertRule(c *gin.Context) {
 }
 
 func (s *Server) updateAlertRule(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 
 	var updates map[string]interface{}
@@ -2191,6 +2279,12 @@ func (s *Server) updateAlertRule(c *gin.Context) {
 }
 
 func (s *Server) deleteAlertRule(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 
 	if err := s.svc.GetAlertService().DeleteRule(uint(id)); err != nil {
@@ -2204,6 +2298,12 @@ func (s *Server) deleteAlertRule(c *gin.Context) {
 // ==================== 告警日志 ====================
 
 func (s *Server) getAlertLogs(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	limitStr := c.DefaultQuery("limit", "50")
 	offsetStr := c.DefaultQuery("offset", "0")
 
@@ -2758,6 +2858,12 @@ func (s *Server) getNodeGroupConfig(c *gin.Context) {
 // ==================== 操作日志 ====================
 
 func (s *Server) getOperationLogs(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "50"))
 	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
 	action := c.Query("action")
@@ -2992,6 +3098,12 @@ type ExportData struct {
 
 // exportData 导出数据
 func (s *Server) exportData(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	format := c.DefaultQuery("format", "json")
 	dataType := c.DefaultQuery("type", "all") // all, nodes, clients
 
@@ -3071,6 +3183,12 @@ func (s *Server) exportData(c *gin.Context) {
 
 // importData 导入数据
 func (s *Server) importData(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no file provided"})
@@ -3193,6 +3311,12 @@ func (s *Server) importData(c *gin.Context) {
 
 // backupDatabase 下载数据库备份
 func (s *Server) backupDatabase(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	dbPath := s.cfg.DBPath
 
 	// 检查文件是否存在
@@ -3234,6 +3358,12 @@ func (s *Server) backupDatabase(c *gin.Context) {
 
 // restoreDatabase 恢复数据库
 func (s *Server) restoreDatabase(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	file, err := c.FormFile("backup")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "no backup file provided"})
@@ -3345,10 +3475,8 @@ func (s *Server) createProxyChain(c *gin.Context) {
 		}
 	}
 
-	// 设置所有者
-	if chain.OwnerID == nil {
-		chain.OwnerID = &userID
-	}
+	// 强制设置所有者 (防止用户指定任意 owner_id)
+	chain.OwnerID = &userID
 
 	if err := s.svc.CreateProxyChain(&chain); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -3362,23 +3490,30 @@ func (s *Server) updateProxyChain(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 	userID, isAdmin := getUserInfo(c)
 
-	chain, err := s.svc.GetProxyChainByOwner(uint(id), userID, isAdmin)
-	if err != nil {
+	// 权限检查
+	if _, err := s.svc.GetProxyChainByOwner(uint(id), userID, isAdmin); err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "无权操作此代理链"})
 		return
 	}
 
-	if err := c.ShouldBindJSON(chain); err != nil {
+	var updates map[string]interface{}
+	if err := c.ShouldBindJSON(&updates); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := s.svc.UpdateProxyChain(chain); err != nil {
+	// 防止篡改受保护字段
+	delete(updates, "id")
+	delete(updates, "owner_id")
+	delete(updates, "created_at")
+
+	if err := s.svc.UpdateProxyChainMap(uint(id), updates); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, chain)
+	result, _ := s.svc.GetProxyChain(uint(id))
+	c.JSON(http.StatusOK, result)
 }
 
 func (s *Server) deleteProxyChain(c *gin.Context) {
@@ -3537,10 +3672,8 @@ func (s *Server) createTunnel(c *gin.Context) {
 		}
 	}
 
-	// 设置所有者
-	if tunnel.OwnerID == nil {
-		tunnel.OwnerID = &userID
-	}
+	// 强制设置所有者 (防止用户指定任意 owner_id)
+	tunnel.OwnerID = &userID
 
 	if err := s.svc.CreateTunnel(&tunnel); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -3556,24 +3689,29 @@ func (s *Server) updateTunnel(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
 	userID, isAdmin := getUserInfo(c)
 
-	tunnel, err := s.svc.GetTunnelByOwner(uint(id), userID, isAdmin)
-	if err != nil {
+	// 权限检查
+	if _, err := s.svc.GetTunnelByOwner(uint(id), userID, isAdmin); err != nil {
 		c.JSON(http.StatusForbidden, gin.H{"error": "无权操作此隧道"})
 		return
 	}
 
-	if err := c.ShouldBindJSON(tunnel); err != nil {
+	var updates map[string]interface{}
+	if err := c.ShouldBindJSON(&updates); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	if err := s.svc.UpdateTunnel(tunnel); err != nil {
+	// 防止篡改受保护字段
+	delete(updates, "id")
+	delete(updates, "owner_id")
+	delete(updates, "created_at")
+
+	if err := s.svc.UpdateTunnelMap(uint(id), updates); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	// 重新加载以获取关联数据
-	result, _ := s.svc.GetTunnel(tunnel.ID)
+	result, _ := s.svc.GetTunnel(uint(id))
 	c.JSON(http.StatusOK, result)
 }
 
@@ -3682,11 +3820,23 @@ func (s *Server) getTunnelExitConfig(c *gin.Context) {
 // ==================== 网站配置 ====================
 
 func (s *Server) getSiteConfigs(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	configs := s.svc.GetSiteConfigs()
 	c.JSON(http.StatusOK, configs)
 }
 
 func (s *Server) updateSiteConfigs(c *gin.Context) {
+	_, isAdmin := getUserInfo(c)
+	if !isAdmin {
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin only"})
+		return
+	}
+
 	var configs map[string]string
 	if err := c.ShouldBindJSON(&configs); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -3920,11 +4070,15 @@ func (s *Server) globalSearch(c *gin.Context) {
 	clients, _ := s.svc.ListClientsByOwner(userID, isAdmin)
 	for _, client := range clients {
 		if containsIgnoreCase(client.Name, query) || containsIgnoreCase(client.Token, query) {
-			results = append(results, SearchResult{
+			tokenPreview := client.Token
+		if len(tokenPreview) > 8 {
+			tokenPreview = tokenPreview[:8] + "..."
+		}
+		results = append(results, SearchResult{
 				Type: "client",
 				ID:   client.ID,
 				Name: client.Name,
-				Desc: fmt.Sprintf("Token: %s - %s", client.Token[:8]+"...", client.Status),
+				Desc: fmt.Sprintf("Token: %s - %s", tokenPreview, client.Status),
 			})
 		}
 		if len(results) >= 30 {

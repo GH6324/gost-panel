@@ -14,7 +14,6 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
-	"github.com/AliceNetworks/gost-panel/internal/api/docs"
 	"github.com/AliceNetworks/gost-panel/internal/config"
 	"github.com/AliceNetworks/gost-panel/internal/model"
 	"github.com/AliceNetworks/gost-panel/internal/notify"
@@ -116,8 +115,8 @@ func (s *Server) setupRoutes() {
 	// Prometheus 指标中间件
 	s.router.Use(PrometheusMiddleware())
 
-	// Prometheus 指标端点 (公开)
-	s.router.GET("/metrics", MetricsHandler())
+	// Prometheus 指标端点 (需要认证)
+	s.router.GET("/metrics", s.authMiddleware(), MetricsHandler())
 
 	// API 路由
 	api := s.router.Group("/api")
@@ -125,17 +124,9 @@ func (s *Server) setupRoutes() {
 		// 健康检查 (公开)
 		api.GET("/health", s.healthCheck)
 
-		// API 文档 (公开)
-		api.GET("/docs", func(c *gin.Context) {
-			c.Data(http.StatusOK, "text/html; charset=utf-8", docs.SwaggerHTML)
-		})
-		api.GET("/openapi.json", func(c *gin.Context) {
-			c.JSON(http.StatusOK, docs.OpenAPISpec())
-		})
-
 		// 公开接口 (带限流)
 		api.POST("/login", RateLimitMiddleware(s.loginLimiter), s.login)
-		api.POST("/login/2fa", s.login2FA)
+		api.POST("/login/2fa", RateLimitMiddleware(s.loginLimiter), s.login2FA)
 		api.GET("/site-config", s.getPublicSiteConfig) // 公开的网站配置
 
 		// 用户注册和验证 (公开，带限流)

@@ -1421,6 +1421,11 @@ func (s *Service) UpdateProxyChain(chain *model.ProxyChain) error {
 	return s.db.Save(chain).Error
 }
 
+// UpdateProxyChainMap 通过 map 更新代理链 (安全更新，防止字段篡改)
+func (s *Service) UpdateProxyChainMap(id uint, updates map[string]interface{}) error {
+	return s.db.Model(&model.ProxyChain{}).Where("id = ?", id).Updates(updates).Error
+}
+
 // DeleteProxyChain 删除代理链
 func (s *Service) DeleteProxyChain(id uint) error {
 	// 先删除跳点
@@ -1496,6 +1501,11 @@ func (s *Service) GetTunnelByOwner(id uint, userID uint, isAdmin bool) (*model.T
 // UpdateTunnel 更新隧道
 func (s *Service) UpdateTunnel(tunnel *model.Tunnel) error {
 	return s.db.Save(tunnel).Error
+}
+
+// UpdateTunnelMap 通过 map 更新隧道 (安全更新，防止字段篡改)
+func (s *Service) UpdateTunnelMap(id uint, updates map[string]interface{}) error {
+	return s.db.Model(&model.Tunnel{}).Where("id = ?", id).Updates(updates).Error
 }
 
 // DeleteTunnel 删除隧道
