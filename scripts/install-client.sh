@@ -278,6 +278,59 @@ EOF
     esac
 }
 
+# 安装心跳
+install_heartbeat() {
+    log_info "[3.5/4] Setting up heartbeat..."
+
+    # 创建心跳脚本
+    cat > /etc/gost/heartbeat.sh << HEARTBEAT
+#!/bin/bash
+if command -v curl &>/dev/null; then
+    curl -fsSL -X POST "${PANEL_URL}/agent/client-heartbeat/${TOKEN}" > /dev/null 2>&1
+elif command -v wget &>/dev/null; then
+    wget -qO /dev/null --post-data="" "${PANEL_URL}/agent/client-heartbeat/${TOKEN}" 2>/dev/null
+fi
+HEARTBEAT
+    chmod +x /etc/gost/heartbeat.sh
+
+    case $INIT_SYSTEM in
+        systemd)
+            # systemd timer (每分钟心跳)
+            cat > /etc/systemd/system/gost-heartbeat.service << 'EOF'
+[Unit]
+Description=GOST Client Heartbeat
+
+[Service]
+Type=oneshot
+ExecStart=/etc/gost/heartbeat.sh
+EOF
+
+            cat > /etc/systemd/system/gost-heartbeat.timer << 'EOF'
+[Unit]
+Description=GOST Client Heartbeat Timer
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=1m
+
+[Install]
+WantedBy=timers.target
+EOF
+            systemctl daemon-reload
+            systemctl enable gost-heartbeat.timer
+            systemctl start gost-heartbeat.timer
+            ;;
+        *)
+            # cron fallback (每分钟心跳)
+            (crontab -l 2>/dev/null | grep -v "gost/heartbeat"; echo "* * * * * /etc/gost/heartbeat.sh") | crontab -
+            ;;
+    esac
+
+    # 发送首次心跳
+    /etc/gost/heartbeat.sh
+    log_info "Heartbeat configured"
+}
+
 # 显示连接信息
 show_info() {
     log_info "[4/4] Extracting connection info..."
@@ -321,6 +374,7 @@ main() {
     install_gost
     download_config
     install_service
+    install_heartbeat
     show_info
 }
 
