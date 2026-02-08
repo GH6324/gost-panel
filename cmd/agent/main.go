@@ -1,7 +1,10 @@
 package main
 
 import (
+	"archive/tar"
+	"archive/zip"
 	"bytes"
+	"compress/gzip"
 	"crypto/sha256"
 	"encoding/json"
 	"flag"
@@ -177,7 +180,7 @@ func (a *Agent) downloadConfig() error {
 	return os.WriteFile(a.configPath, configData, 0644)
 }
 
-// findGost 自动检测 GOST 二进制路径
+// findGost 自动检测 GOST 二进制路径，找不到则自动下载
 func findGost(explicit string) (string, error) {
 	if explicit != "" {
 		if _, err := os.Stat(explicit); err == nil {
@@ -203,7 +206,180 @@ func findGost(explicit string) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("gost binary not found, install it or specify with -gost flag")
+	// 3. Windows 路径
+	if runtime.GOOS == "windows" {
+		exePath, _ := os.Executable()
+		winPath := filepath.Join(filepath.Dir(exePath), "gost.exe")
+		if _, err := os.Stat(winPath); err == nil {
+			return winPath, nil
+		}
+	}
+
+	// 4. 未找到，自动下载
+	log.Println("GOST not found, downloading automatically...")
+	installPath, err := autoInstallGost()
+	if err != nil {
+		return "", fmt.Errorf("GOST not found and auto-install failed: %w", err)
+	}
+	return installPath, nil
+}
+
+const defaultGostVersion = "3.0.0-rc10"
+
+// autoInstallGost 自动下载并安装 GOST
+func autoInstallGost() (string, error) {
+	osName := runtime.GOOS
+	arch := runtime.GOARCH
+
+	// 映射 Go 架构名到 GOST 发布名
+	gostArch := arch
+	switch arch {
+	case "arm":
+		gostArch = "armv7" // 默认 armv7
+	}
+
+	var installPath string
+	if osName == "windows" {
+		exePath, _ := os.Executable()
+		installPath = filepath.Join(filepath.Dir(exePath), "gost.exe")
+	} else {
+		installPath = "/usr/local/bin/gost"
+	}
+
+	// 构造下载 URL
+	var downloadURL, archiveExt string
+	if osName == "windows" {
+		archiveExt = "zip"
+	} else {
+		archiveExt = "tar.gz"
+	}
+	downloadURL = fmt.Sprintf(
+		"https://github.com/go-gost/gost/releases/download/v%s/gost_%s_%s_%s.%s",
+		defaultGostVersion, defaultGostVersion, osName, gostArch, archiveExt,
+	)
+
+	log.Printf("Downloading GOST v%s from %s", defaultGostVersion, downloadURL)
+
+	// 下载
+	client := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := client.Get(downloadURL)
+	if err != nil {
+		return "", fmt.Errorf("download failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("download failed: HTTP %d", resp.StatusCode)
+	}
+
+	// 保存到临时文件
+	tmpFile, err := os.CreateTemp("", "gost-download-*")
+	if err != nil {
+		return "", err
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	if _, err := io.Copy(tmpFile, resp.Body); err != nil {
+		tmpFile.Close()
+		return "", fmt.Errorf("download failed: %w", err)
+	}
+	tmpFile.Close()
+
+	// 解压
+	if archiveExt == "tar.gz" {
+		if err := extractTarGz(tmpPath, installPath); err != nil {
+			return "", fmt.Errorf("extract failed: %w", err)
+		}
+	} else {
+		if err := extractZip(tmpPath, installPath); err != nil {
+			return "", fmt.Errorf("extract failed: %w", err)
+		}
+	}
+
+	log.Printf("GOST installed to %s", installPath)
+	return installPath, nil
+}
+
+// extractTarGz 从 tar.gz 中提取 gost 二进制
+func extractTarGz(archivePath, destPath string) error {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	gr, err := gzip.NewReader(f)
+	if err != nil {
+		return err
+	}
+	defer gr.Close()
+
+	tr := tar.NewReader(gr)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		// 只提取 gost 二进制 (文件名为 "gost" 或 "gost.exe")
+		name := filepath.Base(header.Name)
+		if name == "gost" || name == "gost.exe" {
+			// 确保目标目录存在
+			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+				return err
+			}
+			out, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(out, tr); err != nil {
+				out.Close()
+				return err
+			}
+			out.Close()
+			return nil
+		}
+	}
+	return fmt.Errorf("gost binary not found in archive")
+}
+
+// extractZip 从 zip 中提取 gost 二进制
+func extractZip(archivePath, destPath string) error {
+	r, err := zip.OpenReader(archivePath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		name := filepath.Base(f.Name)
+		if name == "gost" || name == "gost.exe" {
+			rc, err := f.Open()
+			if err != nil {
+				return err
+			}
+			defer rc.Close()
+
+			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+				return err
+			}
+			out, err := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0755)
+			if err != nil {
+				return err
+			}
+			if _, err := io.Copy(out, rc); err != nil {
+				out.Close()
+				return err
+			}
+			out.Close()
+			return nil
+		}
+	}
+	return fmt.Errorf("gost binary not found in archive")
 }
 
 func (a *Agent) startGost() error {
