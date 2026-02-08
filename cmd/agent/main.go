@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -50,6 +51,7 @@ type Agent struct {
 	autoUpdate bool
 	gostCmd    *exec.Cmd
 	client     *http.Client
+	stopping   atomic.Bool
 	// 用于计算增量流量
 	lastTrafficIn    int64
 	lastTrafficOut   int64
@@ -123,6 +125,7 @@ func (a *Agent) Run() error {
 	<-sigChan
 
 	log.Println("Shutting down...")
+	a.stopping.Store(true)
 	a.stopGost()
 
 	return nil
@@ -236,6 +239,9 @@ func (a *Agent) heartbeatLoop() {
 	defer ticker.Stop()
 
 	for range ticker.C {
+		if a.stopping.Load() {
+			return
+		}
 		if err := a.sendHeartbeat(); err != nil {
 			log.Printf("Heartbeat failed: %v", err)
 		}
@@ -347,13 +353,30 @@ func (a *Agent) getConfigHash() string {
 
 // reloadConfig 重新下载并应用配置
 func (a *Agent) reloadConfig() {
+	if a.stopping.Load() {
+		return
+	}
+
 	if err := a.downloadConfig(); err != nil {
 		log.Printf("Failed to download config: %v", err)
 		return
 	}
-	log.Println("Config downloaded, restarting GOST...")
 
-	// 重启 GOST
+	// 优先 SIGHUP 热重载 (不中断连接)
+	if a.gostCmd != nil && a.gostCmd.Process != nil {
+		log.Println("Config downloaded, sending SIGHUP to GOST for hot reload...")
+		if err := a.gostCmd.Process.Signal(syscall.SIGHUP); err == nil {
+			log.Println("GOST config reloaded (hot reload)")
+			return
+		}
+		log.Println("SIGHUP failed, falling back to restart...")
+	}
+
+	if a.stopping.Load() {
+		return
+	}
+
+	// 回退: 重启 GOST
 	a.stopGost()
 	time.Sleep(time.Second)
 	if err := a.startGost(); err != nil {
