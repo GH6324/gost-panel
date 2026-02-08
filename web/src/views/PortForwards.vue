@@ -6,7 +6,7 @@
           <span>端口转发</span>
           <n-space>
             <n-input v-model:value="searchText" placeholder="搜索..." clearable style="width: 200px" />
-            <n-button type="primary" @click="openCreateModal">
+            <n-button type="primary" @click="openCreateModal" v-if="userStore.canWrite">
               添加转发规则
             </n-button>
           </n-space>
@@ -20,7 +20,7 @@
       <EmptyState
         v-else-if="!loading && portForwards.length === 0 && !searchText"
         type="forwards"
-        action-text="添加转发规则"
+        :action-text="userStore.canWrite ? '添加转发规则' : undefined"
         @action="openCreateModal"
       />
 
@@ -105,7 +105,9 @@ import { getPortForwards, createPortForward, updatePortForward, deletePortForwar
 import EmptyState from '../components/EmptyState.vue'
 import TableSkeleton from '../components/TableSkeleton.vue'
 import { useKeyboard } from '../composables/useKeyboard'
+import { useUserStore } from '../stores/user'
 
+const userStore = useUserStore()
 const message = useMessage()
 const dialog = useDialog()
 
@@ -213,25 +215,31 @@ const columns = [
     key: 'actions',
     width: 180,
     render: (row: any) => {
-      const dropdownOptions = [
+      const allDropdownOptions = [
         { label: '克隆', key: 'clone' },
         { type: 'divider', key: 'd1' },
         { label: '删除', key: 'delete' },
       ]
+      const writeOnlyKeys = new Set(['clone', 'delete', 'd1'])
+      const dropdownOptions = userStore.canWrite
+        ? allDropdownOptions
+        : allDropdownOptions.filter(o => !writeOnlyKeys.has(o.key))
       const handleSelect = (key: string) => {
         switch (key) {
           case 'clone': handleClone(row); break
           case 'delete': handleDelete(row); break
         }
       }
-      return h(NSpace, { size: 'small' }, () => [
-        h(NButton, { size: 'small', onClick: () => handleEdit(row) }, () => '编辑'),
-        h(NDropdown, {
+      const buttons: any[] = []
+      if (userStore.canWrite) {
+        buttons.push(h(NButton, { size: 'small', onClick: () => handleEdit(row) }, () => '编辑'))
+        buttons.push(h(NDropdown, {
           options: dropdownOptions,
           onSelect: handleSelect,
           trigger: 'click'
-        }, () => h(NButton, { size: 'small' }, () => '更多'))
-      ])
+        }, () => h(NButton, { size: 'small' }, () => '更多')))
+      }
+      return h(NSpace, { size: 'small' }, () => buttons)
     }
   },
 ]

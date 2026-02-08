@@ -11,7 +11,7 @@
           </n-space>
           <n-space>
             <!-- 批量操作按钮 -->
-            <template v-if="selectedRowKeys.length > 0">
+            <template v-if="selectedRowKeys.length > 0 && userStore.canWrite">
               <n-button @click="handleBatchEnable" :loading="batchLoading">
                 批量启用
               </n-button>
@@ -36,7 +36,7 @@
             <n-button :loading="loading" @click="loadClients">
               刷新
             </n-button>
-            <n-button type="primary" @click="openCreateModal">
+            <n-button type="primary" @click="openCreateModal" v-if="userStore.canWrite">
               添加客户端
             </n-button>
           </n-space>
@@ -50,7 +50,7 @@
       <EmptyState
         v-else-if="!loading && clients.length === 0 && !searchText"
         type="clients"
-        action-text="添加客户端"
+        :action-text="userStore.canWrite ? '添加客户端' : undefined"
         @action="openCreateModal"
       />
 
@@ -210,7 +210,9 @@ import { getClientsPaginated, createClient, updateClient, deleteClient, getClien
 import EmptyState from '../components/EmptyState.vue'
 import TableSkeleton from '../components/TableSkeleton.vue'
 import { useKeyboard } from '../composables/useKeyboard'
+import { useUserStore } from '../stores/user'
 
+const userStore = useUserStore()
 const message = useMessage()
 const dialog = useDialog()
 
@@ -319,7 +321,7 @@ const columns = [
     key: 'actions',
     width: 200,
     render: (row: any) => {
-      const dropdownOptions = [
+      const allDropdownOptions = [
         { label: '克隆客户端', key: 'clone' },
         { label: '安装脚本', key: 'install' },
         { label: '复制 URI', key: 'copy' },
@@ -327,6 +329,10 @@ const columns = [
         { type: 'divider', key: 'd1' },
         { label: '删除', key: 'delete' },
       ]
+      const writeOnlyKeys = new Set(['clone', 'delete', 'd1'])
+      const dropdownOptions = userStore.canWrite
+        ? allDropdownOptions
+        : allDropdownOptions.filter(o => !writeOnlyKeys.has(o.key))
       const handleSelect = (key: string) => {
         switch (key) {
           case 'clone': handleCloneClient(row); break
@@ -336,14 +342,16 @@ const columns = [
           case 'delete': handleDelete(row); break
         }
       }
-      return h(NSpace, { size: 'small' }, () => [
-        h(NButton, { size: 'small', onClick: () => handleEdit(row) }, () => '编辑'),
-        h(NDropdown, {
+      const buttons: any[] = []
+      if (userStore.canWrite) {
+        buttons.push(h(NButton, { size: 'small', onClick: () => handleEdit(row) }, () => '编辑'))
+      }
+      buttons.push(h(NDropdown, {
           options: dropdownOptions,
           onSelect: handleSelect,
           trigger: 'click'
-        }, () => h(NButton, { size: 'small' }, () => '更多'))
-      ])
+        }, () => h(NButton, { size: 'small' }, () => '更多')))
+      return h(NSpace, { size: 'small' }, () => buttons)
     }
   },
 ]

@@ -15,7 +15,7 @@
                 <span>🔍</span>
               </template>
             </n-input>
-            <n-button type="primary" @click="openCreateModal">
+            <n-button type="primary" @click="openCreateModal" v-if="userStore.canWrite">
               添加隧道
             </n-button>
           </n-space>
@@ -33,7 +33,7 @@
       <EmptyState
         v-else-if="!loading && proxyChains.length === 0"
         type="tunnels"
-        action-text="添加隧道"
+        :action-text="userStore.canWrite ? '添加隧道' : undefined"
         @action="openCreateModal"
       />
 
@@ -95,7 +95,7 @@
         </n-alert>
         <n-space justify="space-between" align="center">
           <span>跳点列表 (按顺序转发)</span>
-          <n-button type="primary" size="small" @click="openAddHopModal">
+          <n-button type="primary" size="small" @click="openAddHopModal" v-if="userStore.canWrite">
             添加跳点
           </n-button>
         </n-space>
@@ -149,7 +149,9 @@ import { NButton, NSpace, NTag, NDropdown, useMessage, useDialog } from 'naive-u
 import { getProxyChains, createProxyChain, updateProxyChain, deleteProxyChain, getProxyChainHops, addProxyChainHop, removeProxyChainHop, getProxyChainConfig, cloneProxyChain, getNodes } from '../api'
 import EmptyState from '../components/EmptyState.vue'
 import TableSkeleton from '../components/TableSkeleton.vue'
+import { useUserStore } from '../stores/user'
 
+const userStore = useUserStore()
 const message = useMessage()
 const dialog = useDialog()
 
@@ -235,27 +237,35 @@ const columns = [
     key: 'actions',
     width: 320,
     render: (row: any) => {
-      const dropdownOptions = [
+      const allDropdownOptions = [
         { label: '克隆', key: 'clone' },
         { type: 'divider', key: 'd1' },
         { label: '删除', key: 'delete' },
       ]
+      const writeOnlyKeys = new Set(['clone', 'delete', 'd1'])
+      const dropdownOptions = userStore.canWrite
+        ? allDropdownOptions
+        : allDropdownOptions.filter(o => !writeOnlyKeys.has(o.key))
       const handleSelect = (key: string) => {
         switch (key) {
           case 'clone': handleClone(row); break
           case 'delete': handleDelete(row); break
         }
       }
-      return h(NSpace, { size: 'small' }, () => [
-        h(NButton, { size: 'small', onClick: () => handleEdit(row) }, () => '编辑'),
-        h(NButton, { size: 'small', type: 'primary', onClick: () => handleManageHops(row) }, () => '跳点'),
-        h(NButton, { size: 'small', onClick: () => handleShowConfig(row) }, () => '配置'),
-        h(NDropdown, {
+      const buttons: any[] = []
+      if (userStore.canWrite) {
+        buttons.push(h(NButton, { size: 'small', onClick: () => handleEdit(row) }, () => '编辑'))
+        buttons.push(h(NButton, { size: 'small', type: 'primary', onClick: () => handleManageHops(row) }, () => '跳点'))
+      }
+      buttons.push(h(NButton, { size: 'small', onClick: () => handleShowConfig(row) }, () => '配置'))
+      if (userStore.canWrite && dropdownOptions.length > 0) {
+        buttons.push(h(NDropdown, {
           options: dropdownOptions,
           onSelect: handleSelect,
           trigger: 'click'
-        }, () => h(NButton, { size: 'small' }, () => '更多'))
-      ])
+        }, () => h(NButton, { size: 'small' }, () => '更多')))
+      }
+      return h(NSpace, { size: 'small' }, () => buttons)
     }
   },
 ]
@@ -284,7 +294,9 @@ const hopColumns = [
     key: 'actions',
     width: 100,
     render: (row: any) =>
-      h(NButton, { size: 'small', type: 'error', onClick: () => handleRemoveHop(row) }, () => '移除'),
+      userStore.canWrite
+        ? h(NButton, { size: 'small', type: 'error', onClick: () => handleRemoveHop(row) }, () => '移除')
+        : null,
   },
 ]
 

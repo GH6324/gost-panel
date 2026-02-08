@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { login as apiLogin } from '../api'
 import type { User } from '../types'
 
@@ -9,6 +9,10 @@ export const useUserStore = defineStore('user', () => {
   // 从 localStorage 恢复用户信息
   const storedUser = localStorage.getItem('user')
   const user = ref<User | null>(storedUser ? JSON.parse(storedUser) : null)
+
+  const isAdmin = computed(() => user.value?.role === 'admin')
+  const isViewer = computed(() => user.value?.role === 'viewer')
+  const canWrite = computed(() => user.value?.role !== 'viewer')
 
   const login = async (username: string, password: string) => {
     const res = await apiLogin(username, password)
@@ -31,5 +35,5 @@ export const useUserStore = defineStore('user', () => {
     localStorage.removeItem('user')
   }
 
-  return { token, user, login, logout }
+  return { token, user, isAdmin, isViewer, canWrite, login, logout }
 })

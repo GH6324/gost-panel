@@ -11,7 +11,7 @@
           </n-space>
           <n-space>
             <!-- 批量操作按钮 -->
-            <template v-if="selectedRowKeys.length > 0">
+            <template v-if="selectedRowKeys.length > 0 && userStore.canWrite">
               <n-button @click="handleBatchEnable" :loading="batchLoading">
                 批量启用
               </n-button>
@@ -39,10 +39,10 @@
             <n-button :loading="pingLoading" @click="handlePingAll">
               测试延迟
             </n-button>
-            <n-button @click="openTemplateModal">
+            <n-button @click="openTemplateModal" v-if="userStore.canWrite">
               快速配置
             </n-button>
-            <n-button type="primary" @click="openCreateModal" id="create-node-btn">
+            <n-button type="primary" @click="openCreateModal" id="create-node-btn" v-if="userStore.canWrite">
               添加节点
             </n-button>
           </n-space>
@@ -56,7 +56,7 @@
       <EmptyState
         v-else-if="!loading && nodes.length === 0 && !searchText"
         type="nodes"
-        action-text="添加节点"
+        :action-text="userStore.canWrite ? '添加节点' : undefined"
         @action="openCreateModal"
       />
 
@@ -371,6 +371,7 @@
             closable
             @close="handleDeleteTag(tag.id)"
             style="cursor: pointer;"
+            :closable="userStore.canWrite"
           >
             {{ tag.name }}
           </n-tag>
@@ -379,7 +380,7 @@
       </div>
 
       <!-- 创建新标签 -->
-      <div style="margin-bottom: 16px;">
+      <div style="margin-bottom: 16px;" v-if="userStore.canWrite">
         <n-text strong style="display: block; margin-bottom: 8px;">创建新标签</n-text>
         <n-input-group>
           <n-input v-model:value="newTagName" placeholder="输入标签名称" @keyup.enter="handleCreateTag" />
@@ -400,7 +401,7 @@
       <n-space vertical size="large">
         <n-space justify="space-between" align="center">
           <span>配置快照列表</span>
-          <n-button type="primary" size="small" @click="openCreateVersionModal">
+          <n-button type="primary" size="small" @click="openCreateVersionModal" v-if="userStore.canWrite">
             创建快照
           </n-button>
         </n-space>
@@ -416,8 +417,8 @@
                   </n-space>
                   <n-space>
                     <n-button size="small" @click="handleViewVersion(version)">查看</n-button>
-                    <n-button size="small" type="primary" @click="handleRestoreVersion(version)">恢复</n-button>
-                    <n-button size="small" type="error" @click="handleDeleteVersion(version)">删除</n-button>
+                    <n-button size="small" type="primary" @click="handleRestoreVersion(version)" v-if="userStore.canWrite">恢复</n-button>
+                    <n-button size="small" type="error" @click="handleDeleteVersion(version)" v-if="userStore.canWrite">删除</n-button>
                   </n-space>
                 </n-space>
                 <n-text depth="3" v-if="version.comment">{{ version.comment }}</n-text>
@@ -501,7 +502,9 @@ import EmptyState from '../components/EmptyState.vue'
 import TableSkeleton from '../components/TableSkeleton.vue'
 import { useKeyboard } from '../composables/useKeyboard'
 import { nodeGuide, shouldShowGuide, markGuideComplete } from '../guides'
+import { useUserStore } from '../stores/user'
 
+const userStore = useUserStore()
 const message = useMessage()
 const dialog = useDialog()
 
@@ -836,7 +839,7 @@ const columns = [
     key: 'actions',
     width: 240,
     render: (row: any) => {
-      const dropdownOptions = [
+      const allDropdownOptions = [
         { label: '克隆节点', key: 'clone' },
         { label: '配置历史', key: 'versions' },
         { label: '健康日志', key: 'health' },
@@ -849,6 +852,10 @@ const columns = [
         { type: 'divider', key: 'd1' },
         { label: '删除', key: 'delete' },
       ]
+      const writeOnlyKeys = new Set(['clone', 'sync', 'tags', 'delete', 'd1'])
+      const dropdownOptions = userStore.canWrite
+        ? allDropdownOptions
+        : allDropdownOptions.filter(o => !writeOnlyKeys.has(o.key))
       const handleSelect = (key: string) => {
         switch (key) {
           case 'clone': handleCloneNode(row); break
@@ -863,14 +870,16 @@ const columns = [
           case 'delete': handleDelete(row); break
         }
       }
-      return h(NSpace, { size: 'small' }, () => [
-        h(NButton, { size: 'small', onClick: () => handleEdit(row) }, () => '编辑'),
-        h(NDropdown, {
+      const buttons: any[] = []
+      if (userStore.canWrite) {
+        buttons.push(h(NButton, { size: 'small', onClick: () => handleEdit(row) }, () => '编辑'))
+      }
+      buttons.push(h(NDropdown, {
           options: dropdownOptions,
           onSelect: handleSelect,
           trigger: 'click'
-        }, () => h(NButton, { size: 'small' }, () => '更多'))
-      ])
+        }, () => h(NButton, { size: 'small' }, () => '更多')))
+      return h(NSpace, { size: 'small' }, () => buttons)
     }
   },
 ]

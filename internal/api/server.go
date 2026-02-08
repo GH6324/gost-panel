@@ -141,6 +141,7 @@ func (s *Server) setupRoutes() {
 		auth := api.Group("")
 		auth.Use(s.authMiddleware())
 		auth.Use(APIRateLimitMiddleware(s.globalAPILimiter)) // 全局 API 限流
+		auth.Use(s.viewerWriteBlockMiddleware())             // 只读用户禁止写操作
 		{
 			// 统计
 			auth.GET("/stats", s.getStats)
@@ -559,6 +560,46 @@ func (s *Server) authMiddleware() gin.HandlerFunc {
 		c.Set("username", claims["username"])
 		c.Set("role", claims["role"])
 		c.Set("jti", claims["jti"])
+		c.Next()
+	}
+}
+
+// viewerWriteBlockMiddleware 阻止只读用户执行写操作
+func (s *Server) viewerWriteBlockMiddleware() gin.HandlerFunc {
+	// 个人账户管理路由 (viewer 也可以操作)
+	personalPaths := map[string]bool{
+		"/api/change-password":     true,
+		"/api/profile":             true,
+		"/api/profile/2fa/enable":  true,
+		"/api/profile/2fa/verify":  true,
+		"/api/profile/2fa/disable": true,
+		"/api/sessions/:id":        true,
+		"/api/sessions/others":     true,
+	}
+
+	return func(c *gin.Context) {
+		// 允许所有 GET 请求 (读操作)
+		if c.Request.Method == "GET" {
+			c.Next()
+			return
+		}
+
+		// 允许个人账户管理路由
+		if personalPaths[c.FullPath()] {
+			c.Next()
+			return
+		}
+
+		// 阻止 viewer 角色执行写操作
+		role, exists := c.Get("role")
+		if exists {
+			if r, ok := role.(string); ok && r == "viewer" {
+				c.JSON(http.StatusForbidden, gin.H{"error": "只读用户无权执行此操作"})
+				c.Abort()
+				return
+			}
+		}
+
 		c.Next()
 	}
 }
