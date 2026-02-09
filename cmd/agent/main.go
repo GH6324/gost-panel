@@ -394,15 +394,50 @@ func (a *Agent) startGost() error {
 		return err
 	}
 
-	// 监控进程
-	go func() {
-		err := a.gostCmd.Wait()
-		if err != nil {
-			log.Printf("GOST exited with error: %v", err)
-		}
-	}()
+	// 监控进程并自动重启
+	go a.watchGost()
 
 	return nil
+}
+
+func (a *Agent) watchGost() {
+	backoff := 3 * time.Second
+	maxBackoff := 60 * time.Second
+
+	for {
+		err := a.gostCmd.Wait()
+		if a.stopping.Load() {
+			return
+		}
+
+		if err != nil {
+			log.Printf("GOST exited with error: %v, restarting in %v...", err, backoff)
+		} else {
+			log.Printf("GOST exited unexpectedly, restarting in %v...", backoff)
+		}
+
+		time.Sleep(backoff)
+		if a.stopping.Load() {
+			return
+		}
+
+		// 重新下载配置（可能已更新）
+		if err := a.downloadConfig(); err != nil {
+			log.Printf("Failed to download config before restart: %v", err)
+		}
+
+		a.gostCmd = exec.Command(a.gostPath, "-C", a.configPath)
+		a.gostCmd.Stdout = os.Stdout
+		a.gostCmd.Stderr = os.Stderr
+		if err := a.gostCmd.Start(); err != nil {
+			log.Printf("Failed to restart GOST: %v", err)
+			backoff = min(backoff*2, maxBackoff)
+			continue
+		}
+
+		log.Println("GOST restarted successfully")
+		backoff = 3 * time.Second // 重启成功，重置退避
+	}
 }
 
 func (a *Agent) stopGost() {
