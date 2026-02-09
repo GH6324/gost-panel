@@ -85,8 +85,18 @@ func (h *HealthChecker) checkAll() {
 		go h.checkNode(node)
 	}
 
+	// 检查节点超时 (2分钟无心跳则标记离线)
+	h.checkNodeTimeout()
+
 	// 检查客户端超时 (2分钟无心跳则标记离线)
 	h.checkClientTimeout()
+}
+
+func (h *HealthChecker) checkNodeTimeout() {
+	timeout := time.Now().Add(-2 * time.Minute)
+	h.db.Model(&model.Node{}).
+		Where("status = ? AND last_seen < ?", "online", timeout).
+		Update("status", "offline")
 }
 
 func (h *HealthChecker) checkClientTimeout() {
@@ -97,6 +107,22 @@ func (h *HealthChecker) checkClientTimeout() {
 }
 
 func (h *HealthChecker) checkNode(node model.Node) {
+	// 如果节点在 90 秒内收到过 Agent 心跳，以心跳为准，跳过直接 API 检测
+	// 避免面板无法直接访问节点 GOST API（防火墙/NAT/仅监听本地）时的误判
+	if !node.LastSeen.IsZero() && time.Since(node.LastSeen) < 90*time.Second {
+		h.db.Create(&model.HealthCheckLog{
+			NodeID:    node.ID,
+			Status:    "healthy",
+			Latency:   0,
+			ErrorMsg:  "",
+			CheckedAt: time.Now(),
+		})
+		// 清理旧日志（保留7天）
+		h.db.Where("node_id = ? AND checked_at < ?", node.ID, time.Now().AddDate(0, 0, -7)).Delete(&model.HealthCheckLog{})
+		return
+	}
+
+	// Agent 心跳超时或无 Agent，使用直接 GOST API 检测
 	start := time.Now()
 	client := gost.NewClient(node.Host, node.APIPort, node.APIUser, node.APIPass)
 
