@@ -20,8 +20,8 @@
 ### 节点与客户端
 
 - **多节点管理**: 多 VPS 节点管理，实时状态监控，批量操作 (启用/禁用/同步/删除)
-- **Agent 自动化**: 一键安装脚本 (Linux/Windows)，自动注册、心跳、配置同步、版本更新
-- **客户端管理**: 反向隧道客户端，访问内网服务
+- **Agent 自动化**: 一键安装脚本 (Linux/Windows)，自动注册、心跳、配置同步、版本更新、GOST 自动下载
+- **客户端管理**: 反向隧道客户端，与节点共用 Agent 二进制 (`-mode client`)，面板删除后自动卸载
 - **节点组/负载均衡**: 轮询、随机、哈希策略，健康检查，权重/优先级配置
 - **17 种架构支持**: linux/amd64, arm64, armv7, armv6, mips/mipsle/mips64, windows/amd64+arm64+x86 等
 
@@ -288,7 +288,7 @@ systemctl enable --now gost-node
 
 ## 客户端部署
 
-用于反向隧道 (访问内网服务)。客户端从面板删除后会自动卸载 (通过心跳检测 HTTP 410 信号)。
+用于反向隧道 (访问内网服务)。客户端与节点使用相同的 Agent 二进制，通过 `-mode client` 区分。Agent 内置心跳、配置同步、自动更新，面板删除客户端后自动卸载。
 
 ### 一键安装
 
@@ -309,59 +309,21 @@ irm "https://your-panel.com/scripts/install-client.ps1" -OutFile "$env:TEMP\inst
 ### 手动安装客户端
 
 ```bash
-# 1. 安装 GOST
-bash <(curl -fsSL https://github.com/go-gost/gost/raw/master/install.sh) --install
-
-# 2. 下载配置 (PANEL_URL 和 TOKEN 替换为实际值)
+# 1. 下载 Agent (PANEL_URL 和 TOKEN 替换为实际值)
 PANEL_URL="https://your-panel.com"
 TOKEN="YOUR_CLIENT_TOKEN"
 
-mkdir -p /etc/gost
-curl -fsSL "${PANEL_URL}/agent/config/${TOKEN}" -o /etc/gost/client.yml
+mkdir -p /opt/gost-panel
+VERSION=$(curl -s https://api.github.com/repos/AliceNetworks/gost-panel/releases/latest | grep tag_name | cut -d '"' -f 4)
+curl -fsSL "https://github.com/AliceNetworks/gost-panel/releases/download/${VERSION}/gost-agent-linux-amd64" -o /opt/gost-panel/gost-agent
+chmod +x /opt/gost-panel/gost-agent
 
-# 3. 创建 systemd 服务
-cat > /etc/systemd/system/gost-client.service << EOF
-[Unit]
-Description=GOST Panel Client
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/gost -C /etc/gost/client.yml
-Restart=always
-RestartSec=5
-LimitNOFILE=65535
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# 4. 创建心跳 (每分钟上报, 面板删除后自动卸载)
-cat > /etc/gost/heartbeat.sh << 'HEARTBEAT'
-#!/bin/bash
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "${PANEL_URL}/agent/client-heartbeat/${TOKEN}" 2>/dev/null)
-if [ "$HTTP_CODE" = "410" ]; then
-    systemctl stop gost-client 2>/dev/null
-    systemctl disable gost-client 2>/dev/null
-    rm -f /etc/systemd/system/gost-client.service
-    systemctl stop gost-heartbeat.timer 2>/dev/null
-    systemctl disable gost-heartbeat.timer 2>/dev/null
-    rm -f /etc/systemd/system/gost-heartbeat.{service,timer}
-    systemctl daemon-reload
-    (crontab -l 2>/dev/null | grep -v "gost/heartbeat") | crontab - 2>/dev/null
-    rm -rf /etc/gost /usr/local/bin/gost
-fi
-HEARTBEAT
-chmod +x /etc/gost/heartbeat.sh
-# 注意: 上面的 heredoc 使用了引号 'HEARTBEAT'，实际使用时需要去掉引号让变量展开
-# 或直接用 sed 替换 ${PANEL_URL} 和 ${TOKEN}
-sed -i "s|\${PANEL_URL}|${PANEL_URL}|g; s|\${TOKEN}|${TOKEN}|g" /etc/gost/heartbeat.sh
-echo "* * * * * /etc/gost/heartbeat.sh" | crontab -
-
-# 5. 启动服务
-systemctl daemon-reload
-systemctl enable --now gost-client
+# 2. 安装并启动服务
+/opt/gost-panel/gost-agent service install -panel ${PANEL_URL} -token ${TOKEN} -mode client
+/opt/gost-panel/gost-agent service start
 ```
+
+Agent 会自动完成：下载 GOST、获取配置、定时心跳 (30s)、配置热加载、面板删除后自动卸载。
 
 ## 项目结构
 
