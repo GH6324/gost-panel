@@ -19,10 +19,10 @@ type Node struct {
 	Host        string    `gorm:"size:255;not null" json:"host"`        // 公网地址/域名
 	Port        int       `gorm:"default:38567" json:"port"`            // GOST 端口
 	APIPort     int       `gorm:"default:18080" json:"api_port"`        // GOST API 端口
-	APIUser     string    `gorm:"size:100" json:"-"`                    // API 认证用户 (隐藏)
-	APIPass     string    `gorm:"size:100" json:"-"`                    // API 认证密码 (隐藏)
+	APIUser     string    `gorm:"size:100" json:"api_user"`              // API 认证用户
+	APIPass     string    `gorm:"size:100" json:"api_pass"`              // API 认证密码
 	ProxyUser   string    `gorm:"size:100" json:"proxy_user"`           // 代理认证用户
-	ProxyPass   string    `gorm:"size:100" json:"-"`                    // 代理认证密码 (隐藏)
+	ProxyPass   string    `gorm:"size:100" json:"proxy_pass"`           // 代理认证密码
 	AgentToken  string    `gorm:"size:100;uniqueIndex" json:"-"`        // Agent 认证令牌
 	Status      string    `gorm:"size:20;default:offline" json:"status"` // online/offline
 	TrafficIn   int64     `gorm:"default:0" json:"traffic_in"`          // 入站流量 (bytes)
@@ -34,7 +34,7 @@ type Node struct {
 	TransportOpts string `gorm:"type:text" json:"transport_opts"`           // 传输层配置 JSON
 	// Shadowsocks 配置
 	SSMethod   string `gorm:"size:50" json:"ss_method"`                     // aes-256-gcm/chacha20-ietf-poly1305 等
-	SSPassword string `gorm:"size:100" json:"-"`                            // SS 密码 (隐藏)
+	SSPassword string `gorm:"size:100" json:"ss_password"`                   // SS 密码
 	// TLS 配置
 	TLSEnabled  bool   `gorm:"default:false" json:"tls_enabled"`
 	TLSCertFile string `gorm:"size:255" json:"tls_cert_file"`
@@ -77,7 +77,7 @@ type Client struct {
 	LocalPort   int       `gorm:"default:38777" json:"local_port"`       // 本地 SOCKS5 端口
 	RemotePort  int       `json:"remote_port"`                           // 远程映射端口
 	ProxyUser   string    `gorm:"size:100" json:"proxy_user"`            // 代理认证
-	ProxyPass   string    `gorm:"size:100" json:"-"`                     // 代理密码 (隐藏)
+	ProxyPass   string    `gorm:"size:100" json:"proxy_pass"`            // 代理密码
 	Status      string    `gorm:"size:20;default:offline" json:"status"` // connected/disconnected
 	TrafficIn   int64     `gorm:"default:0" json:"traffic_in"`
 	TrafficOut  int64     `gorm:"default:0" json:"traffic_out"`

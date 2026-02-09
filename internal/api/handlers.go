@@ -247,6 +247,13 @@ func (s *Server) updateNode(c *gin.Context) {
 	delete(updates, "created_at")
 	delete(updates, "owner_id")
 
+	// 密码字段为空时不更新，防止编辑时误覆盖已有密码
+	for _, key := range []string{"api_pass", "proxy_pass", "ss_password"} {
+		if v, ok := updates[key]; ok && v == "" {
+			delete(updates, key)
+		}
+	}
+
 	if err := s.svc.UpdateNode(uint(id), updates); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -1052,6 +1059,11 @@ func (s *Server) updateClient(c *gin.Context) {
 	delete(updates, "token")
 	delete(updates, "created_at")
 	delete(updates, "owner_id")
+
+	// 密码字段为空时不更新，防止编辑时误覆盖已有密码
+	if v, ok := updates["proxy_pass"]; ok && v == "" {
+		delete(updates, "proxy_pass")
+	}
 
 	if err := s.svc.UpdateClient(uint(id), updates); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
