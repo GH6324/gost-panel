@@ -34,6 +34,7 @@ var (
 var (
 	panelURL    = flag.String("panel", "", "Panel URL (e.g., http://panel.example.com:8080)")
 	token       = flag.String("token", "", "Agent token")
+	mode        = flag.String("mode", "node", "Agent mode: node or client")
 	configPath  = flag.String("config", "/etc/gost/gost.yml", "GOST config path")
 	gostPath    = flag.String("gost", "", "GOST binary path (auto-detect if empty)")
 	gostAPI     = flag.String("gost-api", "http://127.0.0.1:18080", "GOST API address")
@@ -46,6 +47,7 @@ var (
 type Agent struct {
 	panelURL   string
 	token      string
+	mode       string // "node" or "client"
 	configPath string
 	gostPath   string
 	gostAPI    string
@@ -68,10 +70,11 @@ type ServiceStats struct {
 	Connections int
 }
 
-func NewAgent(panelURL, token, configPath, gostPath, gostAPI, gostUser, gostPass string, autoUpdate bool) *Agent {
+func NewAgent(panelURL, token, mode, configPath, gostPath, gostAPI, gostUser, gostPass string, autoUpdate bool) *Agent {
 	return &Agent{
 		panelURL:         panelURL,
 		token:            token,
+		mode:             mode,
 		configPath:       configPath,
 		gostPath:         gostPath,
 		gostAPI:          gostAPI,
@@ -498,17 +501,28 @@ func (a *Agent) performUpdate() {
 	}
 }
 
+// ServiceName 返回当前模式的服务名
+func (a *Agent) ServiceName() string {
+	if a.mode == "client" {
+		return "gost-client"
+	}
+	return "gost-node"
+}
+
 // uninstall 卸载 Agent 和 GOST
 func (a *Agent) uninstall() {
+	svcName := a.ServiceName()
+	log.Printf("Uninstalling %s...", svcName)
+
 	log.Println("Stopping GOST...")
 	a.stopGost()
 
 	log.Println("Stopping and disabling service...")
-	exec.Command("systemctl", "stop", "gost-node").Run()
-	exec.Command("systemctl", "disable", "gost-node").Run()
+	exec.Command("systemctl", "stop", svcName).Run()
+	exec.Command("systemctl", "disable", svcName).Run()
 
 	log.Println("Removing files...")
-	os.Remove("/etc/systemd/system/gost-node.service")
+	os.Remove("/etc/systemd/system/" + svcName + ".service")
 	os.RemoveAll("/opt/gost-panel")
 	os.RemoveAll("/etc/gost")
 
@@ -1035,9 +1049,10 @@ func main() {
 	}
 
 	if *panelURL == "" || *token == "" {
-		fmt.Println("Usage: gost-agent -panel <panel_url> -token <token>")
+		fmt.Println("Usage: gost-agent -panel <panel_url> -token <token> [options]")
 		fmt.Println("  -panel       Panel URL (e.g., http://panel.example.com:8080)")
 		fmt.Println("  -token       Agent token from panel")
+		fmt.Println("  -mode        Agent mode: node (default) or client")
 		fmt.Println("  -config      GOST config path (default: /etc/gost/gost.yml)")
 		fmt.Println("  -gost        GOST binary path (auto-detect if empty)")
 		fmt.Println("  -gost-api    GOST API address (default: http://127.0.0.1:18080)")
@@ -1057,7 +1072,7 @@ func main() {
 	}
 	log.Printf("Using GOST: %s", resolvedGostPath)
 
-	agent := NewAgent(*panelURL, *token, *configPath, resolvedGostPath, *gostAPI, *gostUser, *gostPass, *autoUpdate)
+	agent := NewAgent(*panelURL, *token, *mode, *configPath, resolvedGostPath, *gostAPI, *gostUser, *gostPass, *autoUpdate)
 	if err := agent.Run(); err != nil {
 		log.Fatalf("Agent error: %v", err)
 	}

@@ -1,5 +1,5 @@
 #!/bin/bash
-# GOST Panel 客户端安装脚本
+# GOST Panel 客户端安装脚本 (Agent 模式)
 # 支持: Linux (amd64, arm64, armv7, armv6, mips, mipsle, mips64)
 # 用法: curl -fsSL URL | bash -s -- -p PANEL_URL -t TOKEN
 #   或: wget -qO- URL | bash -s -- -p PANEL_URL -t TOKEN
@@ -15,7 +15,6 @@ REPO="AliceNetworks/gost-panel"
 PANEL_URL=""
 TOKEN=""
 INSTALL_DIR="/opt/gost-panel"
-GOST_VERSION="3.0.0-rc10"
 FORCE_ARCH=""
 
 log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
@@ -42,7 +41,7 @@ while [[ $# -gt 0 ]]; do
         -t|--token) TOKEN="$2"; shift 2 ;;
         -a|--arch) FORCE_ARCH="$2"; shift 2 ;;
         -h|--help)
-            echo "GOST Panel Client Installer"
+            echo "GOST Panel Client Installer (Agent Mode)"
             echo ""
             echo "Usage: $0 -p <panel_url> -t <token> [-a <arch>]"
             echo ""
@@ -64,6 +63,7 @@ fi
 
 echo "========================================"
 echo "   GOST Panel Client Installer"
+echo "   (Agent Mode - Built-in Heartbeat)"
 echo "========================================"
 echo ""
 log_info "Panel: $PANEL_URL"
@@ -108,83 +108,119 @@ detect_arch() {
 GOST_ARCH=$(detect_arch)
 log_info "Detected architecture: $GOST_ARCH"
 
-# 检测 init 系统
-detect_init_system() {
-    if command -v systemctl &> /dev/null && systemctl --version &> /dev/null 2>&1; then
-        echo "systemd"
-    elif [[ -f /etc/init.d/rcS ]] || command -v update-rc.d &> /dev/null; then
-        echo "sysvinit"
-    elif [[ -f /etc/rc.common ]]; then
-        echo "procd"
-    elif command -v rc-service &> /dev/null; then
-        echo "openrc"
-    else
-        echo "unknown"
+# 清理旧的 shell 心跳 (从旧版本升级)
+cleanup_old_heartbeat() {
+    if [[ -f /etc/gost/heartbeat.sh ]]; then
+        log_info "Cleaning up old heartbeat script..."
+        # 停止旧的 heartbeat timer
+        systemctl stop gost-heartbeat.timer 2>/dev/null || true
+        systemctl disable gost-heartbeat.timer 2>/dev/null || true
+        rm -f /etc/systemd/system/gost-heartbeat.service
+        rm -f /etc/systemd/system/gost-heartbeat.timer
+        # 移除 cron
+        (crontab -l 2>/dev/null | grep -v "gost/heartbeat") | crontab - 2>/dev/null || true
+        rm -f /etc/gost/heartbeat.sh
+        systemctl daemon-reload 2>/dev/null || true
+        log_info "Old heartbeat cleaned up"
+    fi
+    # 停止旧的 gost-client 服务 (直接运行 GOST 的旧模式)
+    if systemctl is-active gost-client &>/dev/null 2>&1; then
+        log_info "Stopping old gost-client service..."
+        systemctl stop gost-client 2>/dev/null || true
+        systemctl disable gost-client 2>/dev/null || true
+        rm -f /etc/systemd/system/gost-client.service
+        systemctl daemon-reload 2>/dev/null || true
     fi
 }
 
-INIT_SYSTEM=$(detect_init_system)
-log_info "Init system: $INIT_SYSTEM"
+# 下载 Agent
+install_agent() {
+    log_info "[1/3] Installing Agent..."
 
-# 安装 GOST
-install_gost() {
-    log_info "[1/4] Installing GOST..."
+    mkdir -p "$INSTALL_DIR"
 
-    if command -v gost &> /dev/null; then
-        log_info "GOST already installed: $(which gost)"
-        return
+    # 删除旧文件
+    rm -f "$INSTALL_DIR/gost-agent"
+
+    # 获取最新版本
+    local latest_version=$(dl "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+    if [ -z "$latest_version" ]; then
+        latest_version="v1.0.0"
     fi
 
-    local gost_url="https://github.com/go-gost/gost/releases/download/v${GOST_VERSION}/gost_${GOST_VERSION}_linux_${GOST_ARCH}.tar.gz"
-    log_info "Downloading GOST..."
+    # 从 GitHub Releases 下载
+    local agent_url="https://github.com/$REPO/releases/download/$latest_version/gost-agent-linux-$GOST_ARCH"
 
-    dl "$gost_url" /tmp/gost.tar.gz
-    mkdir -p /tmp/gost-extract
-    tar -xzf /tmp/gost.tar.gz -C /tmp/gost-extract
-    mv /tmp/gost-extract/gost /usr/local/bin/
-    chmod +x /usr/local/bin/gost
-    rm -rf /tmp/gost.tar.gz /tmp/gost-extract
+    log_info "Downloading agent from GitHub ($latest_version)..."
+    if dl "$agent_url" "$INSTALL_DIR/gost-agent" 2>/dev/null; then
+        chmod +x "$INSTALL_DIR/gost-agent"
+        log_info "Agent downloaded to $INSTALL_DIR/gost-agent"
+        return 0
+    fi
 
-    log_info "GOST installed to /usr/local/bin/gost"
+    # 回退: 从面板下载
+    log_warn "GitHub download failed, trying panel..."
+    local panel_agent_url="$PANEL_URL/agent/download/linux/$GOST_ARCH"
+    if dl "$panel_agent_url" "$INSTALL_DIR/gost-agent" 2>/dev/null; then
+        chmod +x "$INSTALL_DIR/gost-agent"
+        log_info "Agent downloaded from panel"
+        return 0
+    fi
+
+    log_error "Failed to download agent binary"
+    exit 1
 }
 
-# 下载配置
-download_config() {
-    log_info "[2/4] Downloading config..."
-
-    mkdir -p /etc/gost
-    dl "$PANEL_URL/agent/config/$TOKEN" /etc/gost/client.yml
-    log_info "Config saved to /etc/gost/client.yml"
-}
-
-# 创建服务
+# 安装服务
 install_service() {
-    log_info "[3/4] Installing service..."
+    log_info "[2/3] Installing service..."
 
-    case $INIT_SYSTEM in
-        systemd)
-            cat > /etc/systemd/system/gost-client.service << EOF
-[Unit]
-Description=GOST Panel Client
-After=network.target network-online.target
-Wants=network-online.target
+    # 使用 agent 内置 service 管理
+    if command -v systemctl &>/dev/null; then
+        $INSTALL_DIR/gost-agent service install -panel $PANEL_URL -token $TOKEN -mode client
+        $INSTALL_DIR/gost-agent service start
+    else
+        # 非 systemd 系统: 手动创建服务
+        if [[ -f /etc/init.d/rcS ]] || command -v update-rc.d &>/dev/null; then
+            # sysvinit
+            cat > /etc/init.d/gost-client << EOF
+#!/bin/sh
+### BEGIN INIT INFO
+# Provides:          gost-client
+# Required-Start:    \$network \$remote_fs
+# Required-Stop:     \$network \$remote_fs
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# Description:       GOST Panel Client Agent
+### END INIT INFO
 
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/gost -C /etc/gost/client.yml
-Restart=always
-RestartSec=5
-LimitNOFILE=65535
+DAEMON="$INSTALL_DIR/gost-agent"
+DAEMON_ARGS="-panel $PANEL_URL -token $TOKEN -mode client"
+PIDFILE="/var/run/gost-client.pid"
 
-[Install]
-WantedBy=multi-user.target
+start() {
+    echo "Starting gost-client..."
+    start-stop-daemon --start --background --make-pidfile --pidfile \$PIDFILE --exec \$DAEMON -- \$DAEMON_ARGS
+}
+
+stop() {
+    echo "Stopping gost-client..."
+    start-stop-daemon --stop --pidfile \$PIDFILE
+    rm -f \$PIDFILE
+}
+
+case "\$1" in
+    start) start ;;
+    stop) stop ;;
+    restart) stop; start ;;
+    *) echo "Usage: \$0 {start|stop|restart}"; exit 1 ;;
+esac
 EOF
-            systemctl daemon-reload
-            systemctl enable gost-client
-            systemctl start gost-client
-            ;;
-
-        procd)
+            chmod +x /etc/init.d/gost-client
+            update-rc.d gost-client defaults 2>/dev/null || true
+            /etc/init.d/gost-client start
+        elif [[ -f /etc/rc.common ]]; then
+            # procd (OpenWrt)
             cat > /etc/init.d/gost-client << EOF
 #!/bin/sh /etc/rc.common
 
@@ -194,7 +230,7 @@ USE_PROCD=1
 
 start_service() {
     procd_open_instance
-    procd_set_param command /usr/local/bin/gost -C /etc/gost/client.yml
+    procd_set_param command $INSTALL_DIR/gost-agent -panel $PANEL_URL -token $TOKEN -mode client
     procd_set_param respawn
     procd_set_param stdout 1
     procd_set_param stderr 1
@@ -204,215 +240,54 @@ EOF
             chmod +x /etc/init.d/gost-client
             /etc/init.d/gost-client enable
             /etc/init.d/gost-client start
-            ;;
-
-        openrc)
-            cat > /etc/init.d/gost-client << EOF
-#!/sbin/openrc-run
-
-name="gost-client"
-description="GOST Panel Client"
-command="/usr/local/bin/gost"
-command_args="-C /etc/gost/client.yml"
-command_background="yes"
-pidfile="/var/run/gost-client.pid"
-
-depend() {
-    need net
-    after firewall
-}
-EOF
-            chmod +x /etc/init.d/gost-client
-            rc-update add gost-client default
-            rc-service gost-client start
-            ;;
-
-        sysvinit)
-            cat > /etc/init.d/gost-client << 'EOF'
-#!/bin/sh
-### BEGIN INIT INFO
-# Provides:          gost-client
-# Required-Start:    $network $remote_fs
-# Required-Stop:     $network $remote_fs
-# Default-Start:     2 3 4 5
-# Default-Stop:      0 1 6
-# Description:       GOST Panel Client
-### END INIT INFO
-
-DAEMON="/usr/local/bin/gost"
-DAEMON_ARGS="-C /etc/gost/client.yml"
-PIDFILE="/var/run/gost-client.pid"
-
-start() {
-    echo "Starting gost-client..."
-    start-stop-daemon --start --background --make-pidfile --pidfile $PIDFILE --exec $DAEMON -- $DAEMON_ARGS
-}
-
-stop() {
-    echo "Stopping gost-client..."
-    start-stop-daemon --stop --pidfile $PIDFILE
-    rm -f $PIDFILE
-}
-
-case "$1" in
-    start) start ;;
-    stop) stop ;;
-    restart) stop; start ;;
-    *) echo "Usage: $0 {start|stop|restart}"; exit 1 ;;
-esac
-EOF
-            chmod +x /etc/init.d/gost-client
-            update-rc.d gost-client defaults 2>/dev/null || true
-            /etc/init.d/gost-client start
-            ;;
-
-        *)
-            log_warn "Unknown init system, creating startup script"
+        else
+            # fallback
             mkdir -p "$INSTALL_DIR"
             cat > "$INSTALL_DIR/start-client.sh" << EOF
 #!/bin/bash
-nohup /usr/local/bin/gost -C /etc/gost/client.yml > /var/log/gost-client.log 2>&1 &
+nohup $INSTALL_DIR/gost-agent -panel $PANEL_URL -token $TOKEN -mode client > /var/log/gost-client.log 2>&1 &
 EOF
             chmod +x "$INSTALL_DIR/start-client.sh"
-            ;;
-    esac
-}
-
-# 安装心跳
-install_heartbeat() {
-    log_info "[3.5/4] Setting up heartbeat..."
-
-    # 创建心跳脚本 (含自动卸载检测)
-    cat > /etc/gost/heartbeat.sh << HEARTBEAT
-#!/bin/bash
-# GOST Client Heartbeat (auto-uninstall on 410 Gone)
-HTTP_CODE=""
-
-if command -v curl &>/dev/null; then
-    HTTP_CODE=\$(curl -s -o /dev/null -w "%{http_code}" -X POST "${PANEL_URL}/agent/client-heartbeat/${TOKEN}" 2>/dev/null)
-elif command -v wget &>/dev/null; then
-    HTTP_CODE=\$(wget -S -q --post-data="" "${PANEL_URL}/agent/client-heartbeat/${TOKEN}" -O /dev/null 2>&1 | awk '/HTTP\//{print \$2}' | tail -1)
-fi
-
-# 410 Gone = client deleted from panel, auto-uninstall
-if [ "\$HTTP_CODE" = "410" ]; then
-    echo "[GOST] Client deleted from panel, auto-uninstalling..."
-
-    # Stop and remove gost-client service
-    if command -v systemctl &>/dev/null; then
-        systemctl stop gost-client 2>/dev/null
-        systemctl disable gost-client 2>/dev/null
-        rm -f /etc/systemd/system/gost-client.service
-        # Stop and remove heartbeat timer
-        systemctl stop gost-heartbeat.timer 2>/dev/null
-        systemctl disable gost-heartbeat.timer 2>/dev/null
-        rm -f /etc/systemd/system/gost-heartbeat.service
-        rm -f /etc/systemd/system/gost-heartbeat.timer
-        systemctl daemon-reload
-    elif [ -f /etc/init.d/gost-client ]; then
-        /etc/init.d/gost-client stop 2>/dev/null
-        if command -v update-rc.d &>/dev/null; then
-            update-rc.d -f gost-client remove 2>/dev/null
-        elif command -v rc-update &>/dev/null; then
-            rc-update del gost-client default 2>/dev/null
+            log_warn "No supported init system found. Run '$INSTALL_DIR/start-client.sh' to start manually."
         fi
-        rm -f /etc/init.d/gost-client
     fi
-
-    # Remove cron entry
-    (crontab -l 2>/dev/null | grep -v "gost/heartbeat") | crontab - 2>/dev/null
-
-    # Remove files
-    rm -rf /etc/gost
-    rm -f /usr/local/bin/gost
-
-    echo "[GOST] Uninstall complete."
-fi
-HEARTBEAT
-    chmod +x /etc/gost/heartbeat.sh
-
-    case $INIT_SYSTEM in
-        systemd)
-            # systemd timer (每分钟心跳)
-            cat > /etc/systemd/system/gost-heartbeat.service << 'EOF'
-[Unit]
-Description=GOST Client Heartbeat
-
-[Service]
-Type=oneshot
-ExecStart=/etc/gost/heartbeat.sh
-EOF
-
-            cat > /etc/systemd/system/gost-heartbeat.timer << 'EOF'
-[Unit]
-Description=GOST Client Heartbeat Timer
-
-[Timer]
-OnBootSec=10s
-OnUnitActiveSec=1m
-
-[Install]
-WantedBy=timers.target
-EOF
-            systemctl daemon-reload
-            systemctl enable gost-heartbeat.timer
-            systemctl start gost-heartbeat.timer
-            ;;
-        *)
-            # cron fallback (每分钟心跳)
-            (crontab -l 2>/dev/null | grep -v "gost/heartbeat"; echo "* * * * * /etc/gost/heartbeat.sh") | crontab -
-            ;;
-    esac
-
-    # 发送首次心跳
-    /etc/gost/heartbeat.sh
-    log_info "Heartbeat configured"
 }
 
 # 显示连接信息
 show_info() {
-    log_info "[4/4] Extracting connection info..."
-
-    # 尝试解析配置获取本地端口
-    local local_port=$(grep -oP '(?<=addr: ":)\d+' /etc/gost/client.yml 2>/dev/null | head -1 || echo "38777")
+    log_info "[3/3] Done!"
 
     echo ""
     echo "========================================"
     echo "    Installation Complete!"
     echo "========================================"
     echo ""
-    echo "Local SOCKS5 proxy: socks5://127.0.0.1:$local_port"
+    echo "Agent Mode Features:"
+    echo "  - Built-in heartbeat (every 30s)"
+    echo "  - Auto config reload"
+    echo "  - Auto GOST download"
+    echo "  - Auto uninstall when deleted from panel"
+    echo "  - Auto update"
     echo ""
 
-    case $INIT_SYSTEM in
-        systemd)
-            echo "Service status:"
-            systemctl status gost-client --no-pager || true
-            echo ""
-            echo "Commands:"
-            echo "  systemctl status gost-client   - Check status"
-            echo "  systemctl restart gost-client  - Restart"
-            echo "  journalctl -u gost-client -f   - View logs"
-            ;;
-        procd)
-            echo "Commands:"
-            echo "  /etc/init.d/gost-client status  - Check status"
-            echo "  /etc/init.d/gost-client restart - Restart"
-            ;;
-        *)
-            echo "Commands:"
-            echo "  /etc/init.d/gost-client status  - Check status"
-            echo "  /etc/init.d/gost-client restart - Restart"
-            ;;
-    esac
+    if command -v systemctl &>/dev/null; then
+        echo "Commands:"
+        echo "  $INSTALL_DIR/gost-agent service status   - Check status"
+        echo "  $INSTALL_DIR/gost-agent service restart  - Restart"
+        echo "  $INSTALL_DIR/gost-agent service stop     - Stop"
+        echo "  journalctl -u gost-client -f             - View logs"
+    else
+        echo "Commands:"
+        echo "  /etc/init.d/gost-client status  - Check status"
+        echo "  /etc/init.d/gost-client restart - Restart"
+    fi
 }
 
 # 主流程
 main() {
-    install_gost
-    download_config
+    cleanup_old_heartbeat
+    install_agent
     install_service
-    install_heartbeat
     show_info
 }
 

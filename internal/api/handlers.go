@@ -1112,7 +1112,7 @@ func (s *Server) getClientInstallScript(c *gin.Context) {
 		// Bash 安装命令
 		oneLineCommand = fmt.Sprintf(`(curl -fsSL "%s/install-client.sh" 2>/dev/null || wget -qO- "%s/install-client.sh") | bash -s -- -p "%s" -t "%s"`, githubRaw, githubRaw, panelURL, client.Token)
 		script = fmt.Sprintf(`#!/bin/bash
-# GOST Panel Client Installation
+# GOST Panel Client Installation (Agent Mode)
 # Supported: Linux (amd64, arm64, armv7, armv6, mips, mipsle)
 
 # Client: %s

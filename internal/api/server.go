@@ -1053,7 +1053,7 @@ func (s *Server) serveInstallScript(scriptName string) gin.HandlerFunc {
 	}
 }
 
-// serveClientScript 通过 token 提供客户端安装脚本 (公开接口)
+// serveClientScript 通过 token 提供客户端安装脚本 (公开接口, Agent 模式)
 func (s *Server) serveClientScript(c *gin.Context) {
 	token := c.Param("token")
 
@@ -1067,15 +1067,25 @@ func (s *Server) serveClientScript(c *gin.Context) {
 	panelURL := s.getPanelURL(c)
 
 	script := fmt.Sprintf(`#!/bin/bash
-# GOST 客户端安装脚本
+# GOST 客户端安装脚本 (Agent 模式)
 # 客户端: %s
 
 set -e
 
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+REPO="AliceNetworks/gost-panel"
 PANEL_URL="%s"
 CLIENT_TOKEN="%s"
+INSTALL_DIR="/opt/gost-panel"
 
-# HTTP 下载 (自动检测 curl/wget)
+log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
+
 dl() {
     local url="$1" output="$2"
     if command -v curl &>/dev/null; then
@@ -1083,105 +1093,102 @@ dl() {
     elif command -v wget &>/dev/null; then
         [ -n "$output" ] && wget -qO "$output" "$url" || wget -qO- "$url"
     else
-        echo "ERROR: curl and wget not found"; exit 1
+        log_error "curl and wget not found"; exit 1
     fi
 }
 
-# 安装 GOST
-echo "Installing GOST..."
-bash <(dl https://github.com/go-gost/gost/raw/master/install.sh) --install
+detect_arch() {
+    local arch=$(uname -m)
+    case $arch in
+        x86_64|amd64) echo "amd64" ;;
+        aarch64|arm64) echo "arm64" ;;
+        armv7l|armv7) echo "armv7" ;;
+        armv6l|armv6) echo "armv6" ;;
+        armv5*) echo "armv5" ;;
+        mips) echo "mipsle" ;;
+        mips64) echo "mips64le" ;;
+        i386|i686) echo "386" ;;
+        *) log_error "Unsupported architecture: $arch"; exit 1 ;;
+    esac
+}
 
-# 创建配置目录
-mkdir -p /etc/gost
+echo "======================================"
+echo "  GOST Panel Client Installer"
+echo "  (Agent Mode - Built-in Heartbeat)"
+echo "======================================"
+echo ""
 
-# 下载配置
-echo "Downloading config..."
-dl "${PANEL_URL}/agent/config/${CLIENT_TOKEN}" /etc/gost/gost.yml
+GOST_ARCH=$(detect_arch)
+log_info "Architecture: $GOST_ARCH"
+log_info "Panel: $PANEL_URL"
 
-# 创建 systemd 服务
-cat > /etc/systemd/system/gost.service << 'EOF'
-[Unit]
-Description=GOST Tunnel Service
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/local/bin/gost -C /etc/gost/gost.yml
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-# 创建心跳脚本 (含自动卸载检测)
-cat > /etc/gost/heartbeat.sh << HEARTBEAT
-#!/bin/bash
-HTTP_CODE=""
-
-if command -v curl &>/dev/null; then
-    HTTP_CODE=\$(curl -s -o /dev/null -w "%%{http_code}" -X POST "${PANEL_URL}/agent/client-heartbeat/${CLIENT_TOKEN}" 2>/dev/null)
-elif command -v wget &>/dev/null; then
-    HTTP_CODE=\$(wget -S -q --post-data="" "${PANEL_URL}/agent/client-heartbeat/${CLIENT_TOKEN}" -O /dev/null 2>&1 | awk '/HTTP\//{print \$2}' | tail -1)
+# 清理旧的 shell 心跳 (从旧版本升级)
+if [ -f /etc/gost/heartbeat.sh ]; then
+    log_info "Cleaning up old heartbeat..."
+    systemctl stop gost-heartbeat.timer 2>/dev/null || true
+    systemctl disable gost-heartbeat.timer 2>/dev/null || true
+    rm -f /etc/systemd/system/gost-heartbeat.service
+    rm -f /etc/systemd/system/gost-heartbeat.timer
+    (crontab -l 2>/dev/null | grep -v "gost/heartbeat") | crontab - 2>/dev/null || true
+    rm -f /etc/gost/heartbeat.sh
+    systemctl stop gost 2>/dev/null || true
+    systemctl disable gost 2>/dev/null || true
+    rm -f /etc/systemd/system/gost.service
+    systemctl daemon-reload 2>/dev/null || true
+fi
+if systemctl is-active gost-client &>/dev/null 2>&1; then
+    systemctl stop gost-client 2>/dev/null || true
+    systemctl disable gost-client 2>/dev/null || true
+    rm -f /etc/systemd/system/gost-client.service
+    systemctl daemon-reload 2>/dev/null || true
 fi
 
-# 410 Gone = client deleted from panel, auto-uninstall
-if [ "\$HTTP_CODE" = "410" ]; then
-    echo "[GOST] Client deleted from panel, auto-uninstalling..."
-    if command -v systemctl &>/dev/null; then
-        systemctl stop gost 2>/dev/null
-        systemctl disable gost 2>/dev/null
-        rm -f /etc/systemd/system/gost.service
-        systemctl stop gost-heartbeat.timer 2>/dev/null
-        systemctl disable gost-heartbeat.timer 2>/dev/null
-        rm -f /etc/systemd/system/gost-heartbeat.service
-        rm -f /etc/systemd/system/gost-heartbeat.timer
-        systemctl daemon-reload
+# 下载 Agent
+log_info "[1/3] Installing Agent..."
+mkdir -p "$INSTALL_DIR"
+rm -f "$INSTALL_DIR/gost-agent"
+
+latest_version=$(dl "https://api.github.com/repos/$REPO/releases/latest" | grep '"tag_name"' | sed -E 's/.*"([^"]+)".*/\1/')
+[ -z "$latest_version" ] && latest_version="v1.0.0"
+
+agent_url="https://github.com/$REPO/releases/download/$latest_version/gost-agent-linux-$GOST_ARCH"
+log_info "Downloading agent ($latest_version)..."
+
+if dl "$agent_url" "$INSTALL_DIR/gost-agent" 2>/dev/null; then
+    chmod +x "$INSTALL_DIR/gost-agent"
+    log_info "Agent downloaded"
+else
+    log_warn "GitHub download failed, trying panel..."
+    if dl "$PANEL_URL/agent/download/linux/$GOST_ARCH" "$INSTALL_DIR/gost-agent" 2>/dev/null; then
+        chmod +x "$INSTALL_DIR/gost-agent"
+    else
+        log_error "Failed to download agent"; exit 1
     fi
-    (crontab -l 2>/dev/null | grep -v "gost/heartbeat") | crontab - 2>/dev/null
-    rm -rf /etc/gost
-    rm -f /usr/local/bin/gost
-    echo "[GOST] Uninstall complete."
 fi
-HEARTBEAT
-chmod +x /etc/gost/heartbeat.sh
 
-# 添加 cron job (每分钟心跳)
-(crontab -l 2>/dev/null | grep -v "gost/heartbeat"; echo "* * * * * /etc/gost/heartbeat.sh") | crontab -
+# 安装服务
+log_info "[2/3] Installing service..."
+$INSTALL_DIR/gost-agent service install -panel $PANEL_URL -token $CLIENT_TOKEN -mode client
+$INSTALL_DIR/gost-agent service start
 
-# 创建心跳 systemd timer (备用方案)
-cat > /etc/systemd/system/gost-heartbeat.service << 'EOF'
-[Unit]
-Description=GOST Client Heartbeat
-
-[Service]
-Type=oneshot
-ExecStart=/etc/gost/heartbeat.sh
-EOF
-
-cat > /etc/systemd/system/gost-heartbeat.timer << 'EOF'
-[Unit]
-Description=GOST Client Heartbeat Timer
-
-[Timer]
-OnBootSec=10s
-OnUnitActiveSec=1m
-
-[Install]
-WantedBy=timers.target
-EOF
-
-# 启动服务
-systemctl daemon-reload
-systemctl enable gost gost-heartbeat.timer
-systemctl start gost gost-heartbeat.timer
-
-# 发送首次心跳
-/etc/gost/heartbeat.sh
-
-echo "GOST client installed successfully!"
-echo "Local SOCKS5 port: %d (credentials configured in panel)"
-`, client.Name, panelURL, client.Token, client.LocalPort)
+# 完成
+log_info "[3/3] Done!"
+echo ""
+echo "======================================"
+echo "  Installation Complete!"
+echo "======================================"
+echo ""
+echo "Agent Mode Features:"
+echo "  - Built-in heartbeat (every 30s)"
+echo "  - Auto config reload"
+echo "  - Auto GOST download"
+echo "  - Auto uninstall when deleted from panel"
+echo ""
+echo "Commands:"
+echo "  $INSTALL_DIR/gost-agent service status   - Check status"
+echo "  $INSTALL_DIR/gost-agent service restart  - Restart"
+echo "  journalctl -u gost-client -f             - View logs"
+`, client.Name, panelURL, client.Token)
 
 	c.Header("Content-Type", "text/x-shellscript; charset=utf-8")
 	c.String(http.StatusOK, script)

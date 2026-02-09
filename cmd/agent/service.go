@@ -7,15 +7,27 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	svc "github.com/kardianos/service"
 )
 
-var agentSvcConfig = &svc.Config{
-	Name:        "gost-node",
-	DisplayName: "GOST Panel Agent",
-	Description: "GOST Panel Node Agent",
-	Option:      makeAgentServiceOptions(),
+// getAgentSvcConfig returns service config based on mode
+func getAgentSvcConfig(agentMode string) *svc.Config {
+	if agentMode == "client" {
+		return &svc.Config{
+			Name:        "gost-client",
+			DisplayName: "GOST Panel Client Agent",
+			Description: "GOST Panel Client Agent",
+			Option:      makeAgentServiceOptions(),
+		}
+	}
+	return &svc.Config{
+		Name:        "gost-node",
+		DisplayName: "GOST Panel Agent",
+		Description: "GOST Panel Node Agent",
+		Option:      makeAgentServiceOptions(),
+	}
 }
 
 type agentProgram struct {
@@ -43,7 +55,7 @@ func (p *agentProgram) run() {
 		log.Fatalf("Missing required flags: -panel and -token")
 	}
 
-	log.Printf("Starting gost-agent %s (%s/%s)", AgentVersion, runtime.GOOS, runtime.GOARCH)
+	log.Printf("Starting gost-agent %s (%s/%s) mode=%s", AgentVersion, runtime.GOOS, runtime.GOARCH, *mode)
 
 	resolvedGostPath, err := findGost(*gostPath)
 	if err != nil {
@@ -51,10 +63,23 @@ func (p *agentProgram) run() {
 	}
 	log.Printf("Using GOST: %s", resolvedGostPath)
 
-	p.agent = NewAgent(*panelURL, *token, *configPath, resolvedGostPath, *gostAPI, *gostUser, *gostPass, *autoUpdate)
+	p.agent = NewAgent(*panelURL, *token, *mode, *configPath, resolvedGostPath, *gostAPI, *gostUser, *gostPass, *autoUpdate)
 	if err := p.agent.Run(); err != nil {
 		log.Fatalf("Agent error: %v", err)
 	}
+}
+
+// detectModeFromArgs detects the mode from service command arguments
+func detectModeFromArgs(args []string) string {
+	for i, arg := range args {
+		if (arg == "-mode" || arg == "--mode") && i+1 < len(args) {
+			return args[i+1]
+		}
+		if strings.HasPrefix(arg, "-mode=") {
+			return strings.TrimPrefix(arg, "-mode=")
+		}
+	}
+	return "node"
 }
 
 func handleAgentServiceCommand() {
@@ -70,6 +95,13 @@ func handleAgentServiceCommand() {
 	if action == "install" && len(os.Args) > 3 {
 		svrArgs = os.Args[3:]
 	}
+
+	// Detect mode from arguments to set correct service name
+	agentMode := detectModeFromArgs(svrArgs)
+	if action == "run" && len(os.Args) > 3 {
+		agentMode = detectModeFromArgs(os.Args[3:])
+	}
+	agentSvcConfig := getAgentSvcConfig(agentMode)
 
 	execPath, _ := os.Executable()
 	agentSvcConfig.WorkingDirectory = filepath.Dir(execPath)
@@ -90,7 +122,7 @@ func handleAgentServiceCommand() {
 			fmt.Printf("Install failed: %v\n", err)
 			os.Exit(1)
 		}
-		fmt.Println("Service installed successfully")
+		fmt.Printf("Service '%s' installed successfully\n", agentSvcConfig.Name)
 		fmt.Println()
 		fmt.Println("Usage:")
 		fmt.Println("  gost-agent service start    - Start the service")
@@ -155,6 +187,7 @@ func printAgentServiceUsage() {
 	fmt.Println()
 	fmt.Println("Examples:")
 	fmt.Println("  gost-agent service install -panel http://panel:8080 -token YOUR_TOKEN")
+	fmt.Println("  gost-agent service install -panel http://panel:8080 -token YOUR_TOKEN -mode client")
 	fmt.Println("  gost-agent service start")
 	fmt.Println("  gost-agent service stop")
 }
